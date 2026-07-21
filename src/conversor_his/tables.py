@@ -16,6 +16,10 @@ _LEGAL_PREFIX_RE = re.compile(
     r"^(?:ART\.?\s*\d+|§|PARAGRAFO\b|[IVXLCDM]+\s*[-.)]|[A-Z]\s*[.)])",
     re.IGNORECASE,
 )
+_LEGAL_DEFINITION_RE = re.compile(
+    r"^(?:[IVXLCDM]+\s*[-.)]|[A-Z]\s*[.)])\s+.{20,}:|^§\s*\d+",
+    re.IGNORECASE,
+)
 _EXPLICIT_TITLE_RE = re.compile(
     r"^(?:TABELA|QUADRO)\b|"
     r"^ANEXO\b.{0,140}\b(?:LISTAGEM|TABELA|QUADRO|PARAMETROS?|ZONAS?|ZEIS)\b",
@@ -116,15 +120,19 @@ def _best_header_window(lines: list[str]) -> tuple[int, int, list[str]] | None:
 
 def _is_legal_list_line(line: str) -> bool:
     normalized = _ascii_upper(line.strip())
-    return bool(_LEGAL_PREFIX_RE.search(normalized) or normalized.endswith(";"))
+    return bool(
+        _LEGAL_PREFIX_RE.search(normalized)
+        or _LEGAL_DEFINITION_RE.search(normalized)
+        or normalized.endswith(";")
+    )
 
 
 def assess_table(text: str) -> TableAssessment:
     """Classifica a página como não tabela, candidata ou tabela confirmada.
 
-    A versão 0.5.1 exige cabeçalho local e linhas de dados subsequentes. Termos
-    urbanísticos dispersos e recuos próprios de artigos, incisos e alíneas não são
-    suficientes para alterar a rota de conversão.
+    A classificação exige cabeçalho local, colunas recorrentes e linhas de dados.
+    Listas jurídicas, definições em incisos e parágrafos extensos recebem forte
+    penalização, mesmo quando o alinhamento visual cria falsos indícios de coluna.
     """
 
     lines = [line.rstrip() for line in text.splitlines() if line.strip()]
@@ -161,6 +169,7 @@ def assess_table(text: str) -> TableAssessment:
     row_positions: list[list[int]] = []
     numeric_rows = 0
     legal_rows = 0
+    prose_rows = 0
 
     for line in data_window:
         if _is_legal_list_line(line):
@@ -168,6 +177,8 @@ def assess_table(text: str) -> TableAssessment:
             continue
         starts = _cell_starts(line)
         if len(starts) < 3:
+            if len(line.split()) >= 14:
+                prose_rows += 1
             continue
         row_positions.append(starts)
         if len(_NUMBER_RE.findall(line)) >= 1:
@@ -176,6 +187,7 @@ def assess_table(text: str) -> TableAssessment:
     row_count = len(row_positions)
     stable_columns = _stable_column_count(row_positions)
     legal_list_ratio = legal_rows / max(len(data_window), 1)
+    prose_ratio = prose_rows / max(len(data_window), 1)
 
     score = 0
     reasons: list[str] = []
@@ -194,21 +206,30 @@ def assess_table(text: str) -> TableAssessment:
     if numeric_rows >= 2:
         score += 1
         reasons.append("linhas de dados com valores ou codigos numericos")
-    if legal_list_ratio <= 0.25:
+    if legal_list_ratio <= 0.20 and prose_ratio <= 0.20:
         score += 1
-        reasons.append("baixa predominancia de estrutura juridica enumerativa")
+        reasons.append("baixa predominancia de estrutura juridica ou prosa longa")
+    if legal_list_ratio >= 0.30:
+        score -= 3
+        reasons.append("penalizacao por estrutura juridica enumerativa")
+    if prose_ratio >= 0.30:
+        score -= 2
+        reasons.append("penalizacao por paragrafos extensos")
 
     candidate = (
         len(header_hits) >= 3
-        and row_count >= 2
+        and row_count >= 3
         and 2 <= stable_columns <= 8
-        and legal_list_ratio < 0.50
+        and legal_list_ratio <= 0.30
+        and prose_ratio <= 0.30
+        and (title_nearby or numeric_rows >= 2)
     )
     confirmed = (
         candidate
         and row_count >= 4
         and numeric_rows >= 2
-        and legal_list_ratio <= 0.35
+        and legal_list_ratio <= 0.20
+        and prose_ratio <= 0.20
         and (title_nearby or len(header_hits) >= 4)
     )
 

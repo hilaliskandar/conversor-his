@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .extractors.pypdf_native import count_page_images, extract_page_text, open_pdf
 from .graphics import analyze_repeated_graphics
+from .graphics_policy import refine_confirmed_decorative_graphics
 from .hashing import sha256_file
 from .maps import is_map_page
 from .models import DocumentDiagnosis, PageDiagnosis
@@ -13,6 +14,11 @@ from .models import DocumentDiagnosis, PageDiagnosis
 def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
     reader = open_pdf(path)
     graphic_summaries, repeated_graphics = analyze_repeated_graphics(reader)
+    graphic_summaries = refine_confirmed_decorative_graphics(
+        reader,
+        graphic_summaries,
+        repeated_graphics,
+    )
     pages: list[PageDiagnosis] = []
 
     for index, page in enumerate(reader.pages, start=1):

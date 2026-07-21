@@ -18,13 +18,50 @@ ZIP 1                            1,2                        20            OUC, O
 
     result = assess_table(text)
 
+    assert result.classification == "confirmed"
     assert result.suspected is True
-    assert result.score >= 5
-    assert result.stable_columns >= 2
-    assert "zona" in result.header_hits
+    assert 2 <= result.stable_columns <= 8
+    assert "territorial" in result.header_hits
 
 
-def test_coordinate_list_is_not_table_without_semantic_evidence() -> None:
+def test_detects_zeis_listing_table() -> None:
+    text = """
+ANEXO V - LISTAGEM DAS ZEIS INSTITUIDAS EM LEIS ANTERIORES
+ZEIS         COMUNIDADE                         LEI             DECRETO
+1            Aritana                            114/91          068/91
+2            N.S. do Carmo                      114/91          069/91
+3            Santa Fe                           114/91          078/91
+4            Carolinas                          114/91          072/91
+5            Lagoa Azul                         114/91          080/91
+"""
+
+    result = assess_table(text)
+
+    assert result.classification == "confirmed"
+    assert result.suspected is True
+    assert "territorial" in result.header_hits
+    assert "denominacao" in result.header_hits
+    assert "identificador" in result.header_hits
+
+
+def test_legal_directives_are_not_table() -> None:
+    text = """
+Art. 31. A Zona de Adensamento Construtivo Baixo corresponde aos assentamentos.
+I- promocao da estruturacao de novas ocupacoes mediante saneamento ambiental;
+II- estabelecimento de parametros urbanisticos compativeis com as caracteristicas;
+III- eliminacao da situacao de risco de alagamentos;
+IV- priorizacao dos investimentos para melhoria da infraestrutura;
+V- normatizacao do uso e ocupacao do solo nos morros;
+VI- promocao da gestao integrada das areas de morros.
+"""
+
+    result = assess_table(text)
+
+    assert result.classification == "not_table"
+    assert result.suspected is False
+
+
+def test_coordinate_list_is_not_table_without_local_header() -> None:
     text = """
 Zona de Expansao Urbana - ZEU
 POLIGONO 01
@@ -37,4 +74,5 @@ X=278950.1000, Y=9095800.2000;       X=278300.1000, Y=9091100.2000;
 
     result = assess_table(text)
 
+    assert result.classification == "not_table"
     assert result.suspected is False

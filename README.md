@@ -34,9 +34,11 @@ pip install -e ".[dev,ocr]"
 Dependências externas recomendadas no Windows:
 
 - Tesseract OCR com idioma `por`;
-- Ghostscript e/ou pypdfium2 conforme a rota escolhida;
+- pypdfium2 para renderização, conforme a rota escolhida;
 - OCRmyPDF, a ser integrado em etapa posterior;
 - PaddleOCR, opcional para benchmark e fallback.
+
+Ghostscript não integra a distribuição oficial recomendada. Seu uso, quando presente no ambiente, depende de avaliação específica de licença.
 
 ## Uso inicial
 
@@ -59,6 +61,20 @@ conversor-his converter `
 ## Estado
 
 Versão inicial de arquitetura. Os módulos estão preparados para evolução incremental, comparação de motores de OCR e testes automatizados.
+
+A implementação inicial ainda utiliza PyMuPDF. Essa dependência será substituída por uma rota permissiva somente após benchmark no corpus legislativo, para preservar a qualidade de extração, estrutura e rastreabilidade.
+
+## Licenciamento
+
+O projeto adota licenciamento por camadas:
+
+- código-fonte, testes, scripts e automações próprios: **MIT License**;
+- documentação, metodologia, diagramas e materiais formativos produzidos pelo projeto: **CC BY 4.0**;
+- dados sintéticos expressamente identificados: **CC0 1.0**;
+- dependências, modelos e pesos: licença própria de cada componente;
+- legislação municipal, documentos recebidos e demais conteúdos de terceiros: não são relicenciados pelo projeto.
+
+Consulte [`LICENSING.md`](LICENSING.md) para a delimitação completa e [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) para os avisos de componentes externos.
 
 ## Segurança documental
 

@@ -33,8 +33,14 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
 
         if page.route == "map":
             title = extract_map_title(native_text, page.page_number)
-            image_path = save_map_image(path, page.page_number, assets_dir, dpi=min(dpi, 300))
-            chunks.append(_map_chunk(page.page_number, title, image_path.relative_to(output_dir).as_posix()))
+            image_path = save_map_image(
+                path,
+                page.page_number,
+                assets_dir,
+                dpi=min(dpi, 300),
+            )
+            relative_image = image_path.relative_to(output_dir).as_posix()
+            chunks.append(_map_chunk(page.page_number, title, relative_image))
             continue
 
         if page.route == "ocr":
@@ -42,12 +48,18 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
             if is_map_page(text, max(page.image_count, 1)):
                 page.suspected_map = True
                 page.route = "map"
-                page.warnings.append("mapa identificado apos OCR; texto substituido por imagem")
-                title = extract_map_title(text, page.page_number)
-                image_path = save_map_image(path, page.page_number, assets_dir, dpi=min(dpi, 300))
-                chunks.append(
-                    _map_chunk(page.page_number, title, image_path.relative_to(output_dir).as_posix())
+                page.warnings.append(
+                    "mapa identificado apos OCR; texto substituido por imagem"
                 )
+                title = extract_map_title(text, page.page_number)
+                image_path = save_map_image(
+                    path,
+                    page.page_number,
+                    assets_dir,
+                    dpi=min(dpi, 300),
+                )
+                relative_image = image_path.relative_to(output_dir).as_posix()
+                chunks.append(_map_chunk(page.page_number, title, relative_image))
                 continue
             route = "ocr:tesseract+pdfium"
         else:

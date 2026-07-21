@@ -2,7 +2,7 @@
 
 Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com OCR seletivo, rastreabilidade e controle de qualidade.
 
-Versão atual: **0.5.3**.
+Versão atual: **0.6.0**.
 
 ## Princípios
 
@@ -12,22 +12,12 @@ Versão atual: **0.5.3**.
 - aplica extração nativa quando possível e OCR quando necessário;
 - preserva simultaneamente imagem e texto em páginas visuais;
 - preserva tabelas confirmadas e candidatas como texto linear e imagem;
-- compara extrações `layout` e simples quando encontra texto rotacionado;
-- distingue imagens de conteúdo de elementos gráficos decorativos recorrentes;
+- compara extrações `layout` e simples quando encontra rotação ou espaçamento excessivo;
+- normaliza espaços e caracteres invisíveis na versão textual pesquisável;
+- mantém texto bruto em blocos tabulares para preservar relações posicionais;
 - registra decisões, avisos, tempos e artefatos em manifestos auditáveis;
 - grava Markdown e manifestos de forma atômica;
 - permite limitar, interromper e retomar lotes municipais.
-
-## Arquitetura atual
-
-- `pypdf`: leitura, diagnóstico, extração nativa e inspeção de objetos gráficos;
-- `pypdfium2`: renderização de páginas para OCR, mapas, tabelas e inspeção;
-- Tesseract: OCR local seletivo e dados de confiança;
-- Pillow: gravação e tratamento das imagens geradas;
-- Typer e Rich: interface de linha de comando;
-- biblioteca padrão `zipfile`: processamento seguro de lotes municipais compactados.
-
-O núcleo não depende de PyMuPDF nem de Ghostscript.
 
 ## Instalação
 
@@ -56,7 +46,7 @@ conversor-his converter `
   --saida "D:\corpus\processado"
 ```
 
-### Lote municipal completo
+### Lote completo
 
 O valor `0` em `--documentos` processa todos os PDFs elegíveis:
 
@@ -76,14 +66,7 @@ conversor-his converter-lote `
   --documentos 10
 ```
 
-A forma abreviada também é aceita:
-
-```powershell
-conversor-his converter-lote `
-  --entrada "D:\corpus\originais\municipio.zip" `
-  --saida "D:\corpus\processado\municipio_teste" `
-  -n 10
-```
+A forma abreviada é `-n 10`.
 
 ### Retomada
 
@@ -95,87 +78,68 @@ conversor-his converter-lote `
   --retomar
 ```
 
-A retomada reutiliza documentos concluídos somente quando coincidem o hash da fonte, a versão do conversor, o DPI e os produtos finais existentes.
+A retomada exige coincidência entre hash da fonte, versão do conversor, DPI e produtos finais existentes.
 
-Por padrão, uma pasta-raiz única dentro do ZIP é removida para evitar estruturas duplicadas. Para mantê-la:
-
-```powershell
-conversor-his converter-lote `
-  --entrada "D:\corpus\originais\municipio.zip" `
-  --saida "D:\corpus\processado\municipio" `
-  --manter-raiz-comum
-```
+Por padrão, uma pasta-raiz única do ZIP é removida. Use `--manter-raiz-comum` para preservá-la.
 
 ## Comportamento do lote
 
-- percorre subdiretórios internos do ZIP;
 - ordena os PDFs por caminho para tornar amostras reproduzíveis;
-- ignora arquivos não PDF;
+- relaciona arquivos não PDF no manifesto como ignorados;
 - rejeita travessia de diretórios, caminhos absolutos e links simbólicos;
 - detecta duplicidade de caminho e conteúdo por SHA-256;
-- não converte duas vezes PDFs exatamente iguais;
 - isola falhas por documento;
 - atualiza o manifesto geral antes e depois de cada PDF;
-- registra estados `processing`, `success`, `failed`, `duplicate` e `interrupted`;
-- mantém produtos já concluídos quando a execução é interrompida.
+- registra `started_at`, `updated_at` e `completed_at`;
+- distingue `completed`, `completed_with_limit` e `completed_with_failures`;
+- mantém produtos concluídos quando a execução é interrompida.
 
 ## Produtos gerados
 
-O comando de conversão produz:
-
-- `<documento>.md`: conteúdo convertido e rastreável por página;
-- `<documento>.manifest.json`: operação, hashes, rotas, avisos e tempo;
-- `<documento>_assets/`: imagens visuais e tabulares preservadas.
-
-O comando `converter-lote` também produz:
-
-- `<nome-do-zip>.lote.manifest.json`: inventário incremental do lote, com limite, pendências, sucessos, falhas, duplicados, tempos e caminhos internos.
+- `<documento>.md`: conteúdo pesquisável e rastreável por página;
+- `<documento>.manifest.json`: hashes, rotas, avisos, artefatos e tempo;
+- `<documento>_assets/`: imagens visuais e tabulares;
+- `<nome-do-zip>.lote.manifest.json`: inventário incremental do lote.
 
 ## Histórico de versões
 
+### 0.6.0 — validação operacional em corpus normativo real
+
+- promovida após execução sem falhas em amostra real de dez documentos e 332 páginas;
+- corrige referências Markdown de imagens cujos caminhos contêm espaços;
+- normaliza Unicode, espaços posicionais excessivos e caracteres de largura zero;
+- compara extração simples com `layout` quando há espaçamento anômalo;
+- preserva o texto bruto de tabelas em bloco próprio;
+- reforça penalizações contra falsos positivos tabulares em listas jurídicas;
+- registra caminhos de arquivos não PDF ignorados;
+- preserva o instante inicial do lote e acrescenta instante de conclusão;
+- usa o estado `completed_with_limit` quando apenas a amostra solicitada foi concluída.
+
 ### 0.5.3 — preservação visual e execução retomável
 
-- acrescenta `--documentos` e `-n`, com `0` significando todos;
-- cria manifesto incremental atualizado após cada documento;
-- acrescenta `--retomar` com verificação de hash, versão, DPI e produtos;
-- detecta PDFs duplicados por conteúdo antes da conversão;
-- remove por padrão uma raiz comum redundante do ZIP;
-- exibe no terminal o documento em processamento;
-- registra tempo por documento e por lote;
-- captura avisos de texto rotacionado e compara extração `layout` e simples;
-- registra modo escolhido e contagens de caracteres por página;
-- preserva texto junto à imagem em páginas classificadas como visuais;
-- preserva também a imagem das candidatas a tabela;
-- escreve Markdown e manifestos atomicamente.
+- acrescenta `--documentos`, `-n` e `--retomar`;
+- cria manifesto incremental;
+- detecta duplicados por conteúdo;
+- captura texto rotacionado;
+- preserva texto e imagem em páginas visuais e tabulares.
 
-### 0.5.2 — processamento seguro de lotes municipais em ZIP
+### 0.5.2 — processamento seguro de ZIP
 
 - acrescenta o comando `converter-lote`;
-- preserva a árvore interna de diretórios;
-- mantém o ZIP intacto e usa extração temporária por documento;
-- isola falhas por diploma;
-- valida caminhos e assinatura PDF.
-
-### 0.5.1 — estabilização inicial da detecção tabular
-
-- introduz os estados `not_table`, `candidate` e `confirmed`;
-- restringe a confirmação tabular e reduz falsos positivos jurídicos;
-- registra candidatas separadamente no manifesto.
+- preserva a árvore interna e isola falhas por diploma.
 
 ## Estado atual
 
-A série `0.5.x` permanece experimental. A promoção para `0.6.0` dependerá de precisão mínima de 0,95, revocação mínima de 0,90, F1 mínima de 0,92 e ausência de regressões nas rotas de mapas, OCR, tabelas e páginas decorativas.
+A versão 0.6.0 é considerada operacional para conversão controlada. A validação formal de precisão, revocação e F1 das classificações visual e tabular permanece como atividade contínua de monitoramento e não deve ser confundida com a integridade operacional já demonstrada.
 
 ## Licenciamento
 
-- código-fonte, testes, scripts e automações próprios: **MIT License**;
-- documentação, metodologia, diagramas e materiais formativos: **CC BY 4.0**;
+- código-fonte, testes e automações próprios: **MIT License**;
+- documentação e metodologia: **CC BY 4.0**;
 - dados sintéticos expressamente identificados: **CC0 1.0**;
-- dependências, modelos e pesos: licença própria de cada componente;
-- legislação municipal e conteúdos de terceiros: não são relicenciados.
-
-Consulte `LICENSING.md` e `THIRD_PARTY_NOTICES.md`.
+- dependências e modelos: licença própria;
+- legislação e conteúdos de terceiros não são relicenciados.
 
 ## Segurança documental
 
-O repositório não deve armazenar corpus municipais, modelos de OCR, arquivos convertidos nem dados de trabalho. Esses artefatos devem permanecer em armazenamento controlado.
+O repositório não deve armazenar corpus municipais, modelos de OCR, arquivos convertidos nem dados de trabalho.

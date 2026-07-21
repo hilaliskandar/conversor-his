@@ -18,8 +18,6 @@ from .text_normalization import clean_invisible_characters, normalize_prose_text
 
 
 def _markdown_image(alt_text: str, relative_image: str) -> str:
-    """Gera referência de imagem válida mesmo quando o caminho contém espaços."""
-
     safe_alt = alt_text.replace("[", "(").replace("]", ")")
     return f"![{safe_alt}](<{relative_image}>)"
 
@@ -130,6 +128,7 @@ def convert_pdf(
     for page in diagnosis.pages:
         extraction = native[page.page_number]
         native_text = extraction.text
+        raw_native_text = extraction.raw_text
         page.native_extraction_mode = extraction.selected_mode
         page.layout_character_count = extraction.layout_character_count
         page.simple_character_count = extraction.simple_character_count
@@ -147,12 +146,12 @@ def convert_pdf(
             )
             asset_paths.append(image_path)
             review_pages.append(page.page_number)
-            title = extract_table_title(native_text, page.page_number)
+            title = extract_table_title(raw_native_text, page.page_number)
             chunks.append(
                 _table_chunk(
                     page.page_number,
                     title,
-                    native_text,
+                    raw_native_text,
                     image_path.relative_to(output_dir).as_posix(),
                     candidate=True,
                 )
@@ -187,7 +186,7 @@ def convert_pdf(
             continue
 
         if page.route == "structured":
-            title = extract_table_title(native_text, page.page_number)
+            title = extract_table_title(raw_native_text, page.page_number)
             image_path = save_table_image(
                 path, page.page_number, assets_dir, dpi=min(dpi, 300)
             )
@@ -198,7 +197,7 @@ def convert_pdf(
                 _table_chunk(
                     page.page_number,
                     title,
-                    native_text,
+                    raw_native_text,
                     image_path.relative_to(output_dir).as_posix(),
                 )
             )
@@ -255,7 +254,7 @@ def convert_pdf(
         chunks.append(
             f"<!-- pagina_original: {page.page_number}; rota: native:pypdf; "
             f"modo: {extraction.selected_mode} -->\n\n"
-            f"## Página {page.page_number}\n\n{review_notice}{normalize_prose_text(native_text)}\n"
+            f"## Página {page.page_number}\n\n{review_notice}{native_text}\n"
         )
 
     markdown_path = output_dir / f"{path.stem}.md"

@@ -1,53 +1,39 @@
 # Avisos de componentes de terceiros
 
-Este arquivo registra dependencias e componentes externos relevantes ao Conversor HIS. Cada componente permanece sujeito a sua propria licenca. A MIT License do codigo do projeto nao substitui nem modifica as licencas de terceiros.
+Cada componente permanece sujeito à sua própria licença. A MIT License do código do Conversor HIS não substitui nem modifica licenças de terceiros.
 
-## Dependencias atuais
+## Dependências do núcleo
 
-| Componente | Funcao | Licenca declarada pelo projeto | Situacao no Conversor HIS |
+| Componente | Função | Licença | Situação |
 |---|---|---|---|
-| PyMuPDF | leitura, diagnostico e extracao de PDF | AGPL-3.0 ou comercial | dependencia temporaria; substituicao planejada por componentes permissivos |
-| Pydantic | validacao e modelos de dados | MIT | dependencia do nucleo |
-| PyYAML | leitura de configuracao | MIT | dependencia do nucleo |
-| Typer | interface de linha de comando | MIT | dependencia do nucleo |
-| Rich | saida formatada no terminal | MIT | dependencia do nucleo |
-| python-docx | leitura de DOCX | MIT | dependencia do nucleo |
-| Pillow | processamento de imagens | HPND | dependencia do nucleo |
-| pytesseract | integracao Python com Tesseract | Apache-2.0 | dependencia opcional de OCR |
-| Tesseract OCR | reconhecimento optico de caracteres | Apache-2.0 | programa externo opcional |
-| OCRmyPDF | processamento e OCR de PDFs | MPL-2.0 | integracao opcional planejada; nao modificar ou redistribuir sem preservar a MPL-2.0 |
-| PaddleOCR | OCR e analise estrutural | Apache-2.0 | dependencia opcional para benchmark e fallback |
+| pypdf | leitura e extração textual de PDF | BSD-3-Clause | núcleo |
+| pypdfium2 / PDFium | renderização de páginas | Apache-2.0 ou BSD-3-Clause e avisos do PDFium | núcleo |
+| Pydantic | modelos e validação | MIT | núcleo |
+| PyYAML | configuração | MIT | núcleo |
+| Typer | CLI | MIT | núcleo |
+| Rich | terminal | MIT | núcleo |
+| python-docx | DOCX | MIT | núcleo |
+| Pillow | imagens | HPND | núcleo |
 
-## Componentes planejados para a rota permissiva
+## Dependências opcionais
 
-| Componente | Funcao pretendida | Licenca esperada |
-|---|---|---|
-| pypdf | leitura e extracao textual de PDF | BSD-3-Clause |
-| pdfminer.six | extracao com informacao de layout | MIT |
-| pdfplumber | analise geometrica e tabelas | MIT |
-| pypdfium2 | renderizacao de paginas | Apache-2.0 ou BSD-3-Clause, alem dos avisos aplicaveis ao PDFium |
-| Docling | reconstrucao estrutural e exportacao para Markdown/JSON | MIT; modelos devem ser verificados separadamente |
+| Componente | Função | Licença | Situação |
+|---|---|---|---|
+| pytesseract | integração com Tesseract | Apache-2.0 | extra `ocr` |
+| Tesseract OCR | OCR | Apache-2.0 | programa externo |
+| Docling | estrutura e Markdown/JSON | MIT; modelos verificados separadamente | extra `structured` |
+| pdfplumber | layout e tabelas | MIT | extra `structured` |
+| PaddleOCR | OCR e layout | Apache-2.0 | extra `paddle` |
+| OCRmyPDF | PDF pesquisável e OCR | MPL-2.0 | extra `ocrmypdf` |
 
-## PyMuPDF
+## Componentes não integrantes do núcleo
 
-A versao inicial do projeto ainda utiliza PyMuPDF. Essa dependencia nao esta abrangida pela MIT License do Conversor HIS. Antes de uma distribuicao publica tratada como integralmente permissiva, o projeto devera:
-
-1. substituir PyMuPDF por uma rota permissiva validada; ou
-2. cumprir a AGPL-3.0; ou
-3. obter licenca comercial adequada.
-
-A substituicao sera realizada somente apos benchmark no corpus de legislacao municipal, para evitar perda de qualidade documental.
-
-## Ghostscript
-
-Ghostscript nao deve integrar o pacote, instalador, conteiner ou distribuicao oficial do Conversor HIS sem avaliacao especifica de sua licenca AGPL ou contratacao de licenca comercial. Quando presente no ambiente do usuario, sua instalacao e uso permanecem sujeitos aos termos do fornecedor.
+PyMuPDF foi removido das dependências obrigatórias na versão 0.2.0. Ghostscript não integra o pacote, instalador, contêiner ou distribuição oficial. Qualquer instalação independente permanece sujeita à licença do respectivo fornecedor.
 
 ## Modelos e pesos
 
-Modelos de OCR, arquivos `traineddata`, pesos de deteccao de layout, modelos de tabelas e outros artefatos baixados separadamente nao sao automaticamente licenciados sob MIT. A versao, a origem, o hash e a licenca de cada modelo devem ser registrados no manifesto de execucao ou no inventario do ambiente.
+Modelos de OCR, arquivos `traineddata`, pesos de layout e modelos de tabelas não são automaticamente MIT. Versão, origem, hash e licença devem ser registrados no manifesto do ambiente.
 
 ## Documentos processados
 
-Legislacao municipal, PDFs, anexos, mapas, tabelas e demais documentos recebidos de terceiros nao sao relicenciados por este projeto. A execucao do Conversor HIS sobre um documento nao transfere direitos sobre o original nem torna a saida automaticamente aberta.
-
-Este inventario devera ser atualizado sempre que uma dependencia, modelo ou componente externo for adicionado, removido ou alterado.
+Legislação municipal, PDFs, anexos, mapas, tabelas e demais documentos de terceiros não são relicenciados pela execução do Conversor HIS.

@@ -61,6 +61,24 @@ VI- promocao da gestao integrada das areas de morros.
     assert result.suspected is False
 
 
+def test_legal_definitions_with_tabular_words_are_not_table() -> None:
+    text = """
+Art. 4º Tem-se, para efeitos desta Lei, as seguintes definições:
+TERRITORIAL       IDENTIFICADOR       USO
+I - núcleo urbano: assentamento humano destinado a uso urbano, ainda que situado em área rural;
+II - núcleo urbano informal: aquele clandestino ou irregular, no qual não foi possível a titulação;
+III - núcleo urbano consolidado: aquele de difícil reversão, considerados o tempo da ocupação;
+IV - núcleo urbano de uso não residencial: assentamento caracterizado pelo parcelamento irregular;
+V - núcleo urbano de vinculação: áreas ocupadas ou vazias destinadas à provisão habitacional;
+§ 1º A regularização somente poderá ser aplicada aos núcleos comprovadamente existentes.
+"""
+
+    result = assess_table(text)
+
+    assert result.classification == "not_table"
+    assert result.suspected is False
+
+
 def test_coordinate_list_is_not_table_without_local_header() -> None:
     text = """
 Zona de Expansao Urbana - ZEU

@@ -179,6 +179,13 @@ def _line_has_compact_values(line: str) -> bool:
     )
 
 
+def _has_local_header_signature(lines: list[str]) -> bool:
+    return any(
+        len(_cell_starts(line)) >= 3 and len(_header_hits(line)) >= 2
+        for line in lines
+    )
+
+
 def _empty_assessment(profile: str = "prose") -> TableAssessment:
     return TableAssessment(
         classification="not_table",
@@ -205,6 +212,7 @@ def assess_table(text: str) -> TableAssessment:
     normalized_page = _ascii_upper("\n".join(lines))
     coordinate_lines = sum(bool(_COORDINATE_RE.search(line)) for line in lines)
     legal_lines_total = sum(_is_legal_list_line(line) for line in lines)
+    legal_ratio = legal_lines_total / max(len(lines), 1)
     multi_column_lines = sum(len(_cell_starts(line)) >= 3 for line in lines)
     aligned_value_lines = sum(_line_has_compact_values(line) for line in lines)
     numeric_aligned_lines = sum(
@@ -213,6 +221,7 @@ def assess_table(text: str) -> TableAssessment:
     )
     zone_code_count = len(_ZONE_CODE_RE.findall(normalized_page))
     page_urban_hits = _urban_parameter_hits(normalized_page)
+    explicit_title_evidence = any(_is_title_line(line) for line in lines[:8])
 
     if (
         coordinate_lines >= max(4, len(lines) // 3)
@@ -222,33 +231,33 @@ def assess_table(text: str) -> TableAssessment:
         result.multi_column_lines = multi_column_lines
         return result
 
+    continuation_signal = (
+        aligned_value_lines >= 3
+        and zone_code_count >= 2
+        and (len(page_urban_hits) >= 2 or aligned_value_lines >= 4)
+        and legal_ratio <= 0.25
+        and not explicit_title_evidence
+        and not _has_local_header_signature(lines)
+    )
+    if continuation_signal:
+        return TableAssessment(
+            classification="continuation_candidate",
+            suspected=False,
+            score=7,
+            row_count=multi_column_lines,
+            stable_columns=0,
+            reasons=["possivel continuacao de matriz urbanistica sem cabecalho local"],
+            legal_list_ratio=round(legal_ratio, 4),
+            numeric_rows=numeric_aligned_lines,
+            compact_value_rows=aligned_value_lines,
+            multi_column_lines=multi_column_lines,
+            urban_parameter_hits=page_urban_hits,
+            zone_code_count=zone_code_count,
+            content_profile="urban_matrix_continuation",
+        )
+
     header = _best_header_window(lines)
     if header is None:
-        legal_ratio = legal_lines_total / max(len(lines), 1)
-        continuation_signal = (
-            aligned_value_lines >= 3
-            and zone_code_count >= 2
-            and (len(page_urban_hits) >= 2 or aligned_value_lines >= 4)
-            and legal_ratio <= 0.25
-        )
-        if continuation_signal:
-            return TableAssessment(
-                classification="continuation_candidate",
-                suspected=False,
-                score=7,
-                row_count=multi_column_lines,
-                stable_columns=0,
-                reasons=[
-                    "possivel continuacao de matriz urbanistica sem cabecalho local"
-                ],
-                legal_list_ratio=round(legal_ratio, 4),
-                numeric_rows=numeric_aligned_lines,
-                compact_value_rows=aligned_value_lines,
-                multi_column_lines=multi_column_lines,
-                urban_parameter_hits=page_urban_hits,
-                zone_code_count=zone_code_count,
-                content_profile="urban_matrix_continuation",
-            )
         profile = "legal_list" if legal_lines_total >= len(lines) * 0.3 else "prose"
         return _empty_assessment(profile)
 
@@ -258,7 +267,7 @@ def assess_table(text: str) -> TableAssessment:
         for index in range(max(0, header_start - 5), header_start)
     )
     title_in_header = any(_is_title_line(line) for line in lines[header_start:header_end])
-    title_evidence = title_nearby or title_in_header
+    title_evidence = explicit_title_evidence or title_nearby or title_in_header
     header_text = " ".join(lines[header_start:header_end])
     urban_hits = sorted(set(page_urban_hits + _urban_parameter_hits(header_text)))
 

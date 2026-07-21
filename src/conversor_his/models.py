@@ -17,10 +17,12 @@ PageType = Literal[
     "text",
     "map",
     "table",
+    "table_candidate",
     "decorative_only",
     "back_cover",
     "unknown",
 ]
+TableClassification = Literal["not_table", "candidate", "confirmed"]
 OcrQualityLevel = Literal["high", "medium", "low"]
 
 
@@ -51,12 +53,15 @@ class OcrQuality:
 
 @dataclass(slots=True)
 class TableAssessment:
+    classification: TableClassification
     suspected: bool
     score: int
     row_count: int
     stable_columns: int
     header_hits: list[str] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
+    header_line_index: int | None = None
+    legal_list_ratio: float = 0.0
 
 
 @dataclass(slots=True)
@@ -98,6 +103,7 @@ class ConversionManifest:
     used_ocr_pages: list[int]
     map_pages: list[int]
     table_pages: list[int]
+    table_candidate_pages: list[int]
     decorative_pages: list[int]
     review_pages: list[int]
     dpi: int

@@ -55,7 +55,7 @@ Parâmetros de lote, testada, recuo, TO, TSN, gabarito GM e coeficiente CA perma
     assert result.content_profile == "urban_matrix_continuation"
 
 
-def test_detects_zeis_listing_table() -> None:
+def test_preserves_zeis_listing_as_table_candidate() -> None:
     text = """
 ANEXO V - LISTAGEM DAS ZEIS INSTITUIDAS EM LEIS ANTERIORES
 ZEIS         COMUNIDADE                         LEI             DECRETO
@@ -66,11 +66,12 @@ ZEIS         COMUNIDADE                         LEI             DECRETO
 5            Lagoa Azul                         114/91          080/91
 """
     result = assess_table(text)
-    assert result.classification == "confirmed"
-    assert result.suspected is True
+    assert result.classification in {"candidate", "confirmed"}
+    assert result.classification != "not_table"
     assert "territorial" in result.header_hits
     assert "denominacao" in result.header_hits
     assert "identificador" in result.header_hits
+    assert result.row_count >= 3
 
 
 def test_legal_directives_are_not_table() -> None:

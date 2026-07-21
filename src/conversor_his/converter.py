@@ -1,9 +1,10 @@
+# SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 from pathlib import Path
 
 from .diagnostic import diagnose_pdf
-from .extractors.pdf_native import extract_native_pages
+from .extractors.pypdf_native import extract_native_pages
 from .manifest import write_manifest
 from .ocr.tesseract_engine import TesseractEngine
 
@@ -18,10 +19,10 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
     for page in diagnosis.pages:
         if page.route == "ocr":
             text = ocr.recognize_page(path, page.page_number, dpi=dpi)
-            route = "ocr:tesseract"
+            route = "ocr:tesseract+pdfium"
         else:
             text = native[page.page_number]
-            route = "native:pymupdf"
+            route = "native:pypdf"
         chunks.append(
             f"<!-- pagina_original: {page.page_number}; rota: {route} -->\n\n"
             f"## Página {page.page_number}\n\n{text}\n"

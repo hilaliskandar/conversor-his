@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .extractors.pypdf_native import (
+    NativeTextExtraction,
     count_page_images,
     extract_page_text_detailed,
     open_pdf,
@@ -16,7 +17,11 @@ from .models import DocumentDiagnosis, PageDiagnosis
 from .tables import assess_table
 
 
-def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
+def diagnose_pdf(
+    path: Path,
+    min_native_chars: int = 40,
+    native_extractions: dict[int, NativeTextExtraction] | None = None,
+) -> DocumentDiagnosis:
     reader = open_pdf(path)
     graphic_summaries, repeated_graphics = analyze_repeated_graphics(reader)
     graphic_summaries = refine_confirmed_decorative_graphics(
@@ -28,7 +33,11 @@ def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
     page_count = len(reader.pages)
 
     for index, page in enumerate(reader.pages, start=1):
-        extraction = extract_page_text_detailed(page)
+        extraction = (
+            native_extractions[index]
+            if native_extractions is not None and index in native_extractions
+            else extract_page_text_detailed(page)
+        )
         text = extraction.text
         fallback_image_count = count_page_images(page)
         graphics = graphic_summaries.get(index)

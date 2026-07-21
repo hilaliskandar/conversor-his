@@ -84,7 +84,7 @@ class PageDiagnosis:
 
 @dataclass(slots=True)
 class DocumentDiagnosis:
-    source_path: Path
+    source_path: Path | str
     sha256: str
     page_count: int
     pages: list[PageDiagnosis]
@@ -93,7 +93,7 @@ class DocumentDiagnosis:
 
 @dataclass(slots=True)
 class ConversionManifest:
-    source_path: Path
+    source_path: Path | str
     source_sha256: str
     page_count: int
     markdown_path: Path
@@ -113,7 +113,7 @@ class ConversionManifest:
 
 @dataclass(slots=True)
 class ConversionResult:
-    source_path: Path
+    source_path: Path | str
     output_dir: Path
     markdown_path: Path
     manifest_path: Path

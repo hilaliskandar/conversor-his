@@ -4,7 +4,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-PageRoute = Literal["native", "ocr", "map", "hybrid", "manual"]
+PageRoute = Literal[
+    "native",
+    "ocr",
+    "map",
+    "structured",
+    "decorative",
+    "hybrid",
+    "manual",
+]
+PageType = Literal[
+    "text",
+    "map",
+    "table",
+    "decorative_only",
+    "back_cover",
+    "unknown",
+]
 OcrQualityLevel = Literal["high", "medium", "low"]
 
 
@@ -34,6 +50,16 @@ class OcrQuality:
 
 
 @dataclass(slots=True)
+class TableAssessment:
+    suspected: bool
+    score: int
+    row_count: int
+    stable_columns: int
+    header_hits: list[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class PageDiagnosis:
     page_number: int
     has_native_text: bool
@@ -44,9 +70,11 @@ class PageDiagnosis:
     content_image_count: int = 0
     suspected_table: bool = False
     suspected_map: bool = False
+    page_type: PageType = "unknown"
     route: PageRoute = "native"
     warnings: list[str] = field(default_factory=list)
     ocr_quality: OcrQuality | None = None
+    table_assessment: TableAssessment | None = None
 
 
 @dataclass(slots=True)
@@ -69,6 +97,8 @@ class ConversionManifest:
     asset_paths: list[Path]
     used_ocr_pages: list[int]
     map_pages: list[int]
+    table_pages: list[int]
+    decorative_pages: list[int]
     review_pages: list[int]
     dpi: int
     converter_version: str

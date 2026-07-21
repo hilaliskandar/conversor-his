@@ -57,6 +57,7 @@ def test_document_limit_zero_means_all_and_positive_limit_leaves_pending(
     with zipfile.ZipFile(zip_path, "w") as archive:
         for index in range(3):
             archive.writestr(f"raiz/cidade/lei_{index}.pdf", b"%PDF-1.4\n")
+        archive.writestr("raiz/cidade/notas.txt", "ignorar")
 
     def fake_convert_pdf(path: Path, output: Path, dpi: int, source_reference: str) -> Path:
         output.mkdir(parents=True, exist_ok=True)
@@ -75,7 +76,14 @@ def test_document_limit_zero_means_all_and_positive_limit_leaves_pending(
     manifest = json.loads(limited.manifest_path.read_text(encoding="utf-8"))
     assert manifest["document_limit"] == 2
     assert manifest["pending_count"] == 1
-    assert all("raiz" not in str(entry.get("output_relative_path", "")) for entry in manifest["entries"])
+    assert manifest["status"] == "completed_with_limit"
+    assert manifest["started_at"] == manifest["generated_at"]
+    assert "completed_at" in manifest
+    assert manifest["ignored_entries"][0]["member"].endswith("notas.txt")
+    assert all(
+        "raiz" not in str(entry.get("output_relative_path", ""))
+        for entry in manifest["entries"]
+    )
 
 
 def test_exact_duplicate_content_is_not_converted_twice(

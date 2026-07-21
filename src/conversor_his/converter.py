@@ -35,7 +35,7 @@ def _table_chunk(
         f"<!-- pagina_original: {page_number}; tipo: tabela; "
         "rota: structured:preservacao; revisao: sim -->\n\n"
         f"## Página {page_number} — {title}\n\n"
-        "> **Revisão estrutural necessária:** foram detectados sinais de tabela ou quadro. "
+        "> **Revisão estrutural necessária:** foi confirmada estrutura de tabela ou quadro. "
         "O texto abaixo preserva a extração linear, mas as relações entre linhas e colunas "
         "devem ser conferidas na imagem da página.\n\n"
         f"![Página tabular {page_number}]({relative_image})\n\n"
@@ -82,11 +82,15 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
     used_ocr_pages: list[int] = []
     map_pages: list[int] = []
     table_pages: list[int] = []
+    table_candidate_pages: list[int] = []
     decorative_pages: list[int] = []
     review_pages: list[int] = []
 
     for page in diagnosis.pages:
         native_text = native[page.page_number]
+
+        if page.page_type == "table_candidate":
+            table_candidate_pages.append(page.page_number)
 
         if page.route == "map":
             title = extract_map_title(native_text, page.page_number)
@@ -187,6 +191,7 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
         used_ocr_pages=used_ocr_pages,
         map_pages=map_pages,
         table_pages=table_pages,
+        table_candidate_pages=table_candidate_pages,
         decorative_pages=decorative_pages,
         review_pages=review_pages,
         dpi=dpi,

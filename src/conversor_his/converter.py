@@ -25,12 +25,7 @@ def _map_chunk(page_number: int, title: str, relative_image: str) -> str:
     )
 
 
-def _table_chunk(
-    page_number: int,
-    title: str,
-    text: str,
-    relative_image: str,
-) -> str:
+def _table_chunk(page_number: int, title: str, text: str, relative_image: str) -> str:
     return (
         f"<!-- pagina_original: {page_number}; tipo: tabela; "
         "rota: structured:preservacao; revisao: sim -->\n\n"
@@ -71,9 +66,16 @@ def _ocr_chunk(page_number: int, text: str, requires_review: bool) -> str:
     )
 
 
-def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
+def convert_pdf(
+    path: Path,
+    output_dir: Path,
+    dpi: int = 300,
+    source_reference: str | None = None,
+) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     diagnosis = diagnose_pdf(path)
+    source_path: Path | str = source_reference or path
+    diagnosis.source_path = source_path
     native = extract_native_pages(path)
     ocr = TesseractEngine()
     chunks: list[str] = []
@@ -88,89 +90,48 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
 
     for page in diagnosis.pages:
         native_text = native[page.page_number]
-
         if page.page_type == "table_candidate":
             table_candidate_pages.append(page.page_number)
-
         if page.route == "map":
             title = extract_map_title(native_text, page.page_number)
-            image_path = save_map_image(
-                path,
-                page.page_number,
-                assets_dir,
-                dpi=min(dpi, 300),
-            )
+            image_path = save_map_image(path, page.page_number, assets_dir, dpi=min(dpi, 300))
             asset_paths.append(image_path)
             map_pages.append(page.page_number)
-            relative_image = image_path.relative_to(output_dir).as_posix()
-            chunks.append(_map_chunk(page.page_number, title, relative_image))
+            chunks.append(_map_chunk(page.page_number, title, image_path.relative_to(output_dir).as_posix()))
             continue
-
         if page.route == "decorative":
             decorative_pages.append(page.page_number)
             chunks.append(_decorative_chunk(page.page_number, page.page_type))
             continue
-
         if page.route == "structured":
             title = extract_table_title(native_text, page.page_number)
-            image_path = save_table_image(
-                path,
-                page.page_number,
-                assets_dir,
-                dpi=min(dpi, 300),
-            )
+            image_path = save_table_image(path, page.page_number, assets_dir, dpi=min(dpi, 300))
             asset_paths.append(image_path)
             table_pages.append(page.page_number)
             review_pages.append(page.page_number)
-            relative_image = image_path.relative_to(output_dir).as_posix()
-            chunks.append(
-                _table_chunk(
-                    page.page_number,
-                    title,
-                    native_text,
-                    relative_image,
-                )
-            )
+            chunks.append(_table_chunk(page.page_number, title, native_text, image_path.relative_to(output_dir).as_posix()))
             continue
-
         if page.route == "ocr":
             used_ocr_pages.append(page.page_number)
-            text, confidences = ocr.recognize_page_with_confidence(
-                path,
-                page.page_number,
-                dpi=dpi,
-            )
+            text, confidences = ocr.recognize_page_with_confidence(path, page.page_number, dpi=dpi)
             quality = assess_ocr_quality(text, confidences)
             page.ocr_quality = quality
-
             if is_map_page(text, max(page.image_count, 1)):
                 page.suspected_map = True
                 page.page_type = "map"
                 page.route = "map"
-                page.warnings.append(
-                    "mapa identificado apos OCR; texto substituido por imagem"
-                )
+                page.warnings.append("mapa identificado apos OCR; texto substituido por imagem")
                 title = extract_map_title(text, page.page_number)
-                image_path = save_map_image(
-                    path,
-                    page.page_number,
-                    assets_dir,
-                    dpi=min(dpi, 300),
-                )
+                image_path = save_map_image(path, page.page_number, assets_dir, dpi=min(dpi, 300))
                 asset_paths.append(image_path)
                 map_pages.append(page.page_number)
-                relative_image = image_path.relative_to(output_dir).as_posix()
-                chunks.append(_map_chunk(page.page_number, title, relative_image))
+                chunks.append(_map_chunk(page.page_number, title, image_path.relative_to(output_dir).as_posix()))
                 continue
-
             if quality.requires_review:
                 review_pages.append(page.page_number)
-                page.warnings.append(
-                    "resultado OCR requer revisao: " + "; ".join(quality.reasons)
-                )
+                page.warnings.append("resultado OCR requer revisao: " + "; ".join(quality.reasons))
             chunks.append(_ocr_chunk(page.page_number, text, quality.requires_review))
             continue
-
         chunks.append(
             f"<!-- pagina_original: {page.page_number}; rota: native:pypdf -->\n\n"
             f"## Página {page.page_number}\n\n{native_text}\n"
@@ -179,9 +140,8 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
     markdown_path = output_dir / f"{path.stem}.md"
     manifest_path = output_dir / f"{path.stem}.manifest.json"
     markdown_path.write_text("\n\n".join(chunks), encoding="utf-8")
-
     conversion_manifest = ConversionManifest(
-        source_path=path,
+        source_path=source_path,
         source_sha256=diagnosis.sha256,
         page_count=diagnosis.page_count,
         markdown_path=markdown_path,

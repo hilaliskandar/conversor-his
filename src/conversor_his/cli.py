@@ -43,13 +43,39 @@ def converter_lote(
     entrada: Path = typer.Option(..., exists=True, readable=True),
     saida: Path = typer.Option(...),
     dpi: int = typer.Option(300, min=150, max=600),
+    documentos: int = typer.Option(
+        0,
+        "--documentos",
+        "-n",
+        min=0,
+        help="Quantidade máxima de PDFs a processar; 0 processa todos.",
+    ),
+    retomar: bool = typer.Option(
+        False,
+        "--retomar/--nao-retomar",
+        help="Reutiliza resultados concluídos com mesmo hash, versão e DPI.",
+    ),
+    remover_raiz_comum: bool = typer.Option(
+        True,
+        "--remover-raiz-comum/--manter-raiz-comum",
+        help="Remove uma pasta-raiz única do ZIP para evitar diretórios duplicados.",
+    ),
 ) -> None:
-    """Converte todos os PDFs de um ZIP, preservando a árvore interna de diretórios."""
-    result = convert_zip_batch(entrada, saida, dpi=dpi)
+    """Converte PDFs de um ZIP com limite, retomada e manifesto incremental."""
+    result = convert_zip_batch(
+        entrada,
+        saida,
+        dpi=dpi,
+        document_limit=documentos,
+        resume=retomar,
+        remove_common_root=remover_raiz_comum,
+        progress=lambda message: console.print(message),
+    )
     console.print(
         "[green]Lote concluído.[/green] "
-        f"PDFs: {result.pdf_count}; sucessos: {result.success_count}; "
-        f"falhas: {result.failure_count}; ignorados: {result.skipped_count}."
+        f"PDFs encontrados: {result.pdf_count}; sucessos: {result.success_count}; "
+        f"duplicados: {result.duplicate_count}; falhas: {result.failure_count}; "
+        f"não PDF ignorados: {result.skipped_count}; pendentes pelo limite: {result.pending_count}."
     )
     console.print(f"[green]Manifesto do lote:[/green] {result.manifest_path}")
     if result.failure_count:

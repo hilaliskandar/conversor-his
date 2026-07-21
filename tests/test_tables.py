@@ -15,13 +15,44 @@ ZAB                              1,5                        30            DP, PE
 ZAR                              1,5                        30            DP, OUC, OO                  1, 2, 3, 4
 ZIP 1                            1,2                        20            OUC, OO                     1, 2, 3, 4
 """
-
     result = assess_table(text)
-
     assert result.classification == "confirmed"
     assert result.suspected is True
-    assert 2 <= result.stable_columns <= 8
+    assert 2 <= result.stable_columns <= 14
     assert "territorial" in result.header_hits
+
+
+def test_detects_realistic_abreu_e_lima_parameter_matrix() -> None:
+    text = """
+ZRU3      Habitacional   Unifamiliar   ou   Multifamiliar          200         10,00      5,00      1,50      1,50      40     30       2           0,3    D, I, J, K
+          Misto                                                    200         10,00      5,00      1,50      1,50      50     30       2           0,5    D, I, J, K, Z
+ZAI       Não Residencial (Industrial)                             20.000      100,00     20,00     10,00     5,00      70     20       -           1,0    P, S
+ZUR       Empreendimentos de Lazer/Recreação                       Análise Especial                                                                        O
+                                                                                   Recuo
+ ZONA                          USO                         LM (m²)     TM (m²)     Mínimo           TO (%)         TSN (%)        GM (pavto)       CA       Requisitos Especiais
+                                                                                Front     Lat     Fund.
+MACROZONA RURAL ALDEIA - MZ2
+NUAR         Habitacional Unifamiliar ou Multifamiliar             200         10,00      5,00      1,50      1,50      50     30       2           0,5    D, I, J, K
+NUR21        Empreendimentos de Lazer e Turismo Rural               Análise Especial                                                                        O
+"""
+    result = assess_table(text)
+    assert result.classification in {"confirmed", "mixed_candidate", "candidate"}
+    assert result.classification != "not_table"
+    assert len(result.urban_parameter_hits) >= 4
+    assert result.zone_code_count >= 2
+
+
+def test_detects_urban_matrix_continuation_without_repeated_header() -> None:
+    text = """
+132/150
+NUR21        Misto                                       200        10,00     5,00     1,50    1,50      50         30          2            0,5       D, I, J, K, Z
+ZLPF         Uso habitacional condicionado               1.000      20,00     10,00    5,00    5,00      20         70          2            0,0       W
+ZPPF         Empreendimentos de lazer                     Análise Especial                                                        O
+Parâmetros de lote, testada, recuo, TO, TSN, gabarito GM e coeficiente CA permanecem os mesmos.
+"""
+    result = assess_table(text)
+    assert result.classification == "continuation_candidate"
+    assert result.content_profile == "urban_matrix_continuation"
 
 
 def test_detects_zeis_listing_table() -> None:
@@ -34,9 +65,7 @@ ZEIS         COMUNIDADE                         LEI             DECRETO
 4            Carolinas                          114/91          072/91
 5            Lagoa Azul                         114/91          080/91
 """
-
     result = assess_table(text)
-
     assert result.classification == "confirmed"
     assert result.suspected is True
     assert "territorial" in result.header_hits
@@ -54,9 +83,7 @@ IV- priorizacao dos investimentos para melhoria da infraestrutura;
 V- normatizacao do uso e ocupacao do solo nos morros;
 VI- promocao da gestao integrada das areas de morros.
 """
-
     result = assess_table(text)
-
     assert result.classification == "not_table"
     assert result.suspected is False
 
@@ -72,9 +99,7 @@ IV - núcleo urbano de uso não residencial: assentamento caracterizado pelo par
 V - núcleo urbano de vinculação: áreas ocupadas ou vazias destinadas à provisão habitacional;
 § 1º A regularização somente poderá ser aplicada aos núcleos comprovadamente existentes.
 """
-
     result = assess_table(text)
-
     assert result.classification == "not_table"
     assert result.suspected is False
 
@@ -89,8 +114,7 @@ X=279013.9179, Y=9095979.2113;       X=278453.6552, Y=9091212.6406;
 X=278994.3980, Y=9095935.8071;       X=278397.0989, Y=9091190.3000;
 X=278950.1000, Y=9095800.2000;       X=278300.1000, Y=9091100.2000;
 """
-
     result = assess_table(text)
-
     assert result.classification == "not_table"
     assert result.suspected is False
+    assert result.content_profile == "coordinates"

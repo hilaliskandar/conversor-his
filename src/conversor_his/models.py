@@ -22,7 +22,13 @@ PageType = Literal[
     "back_cover",
     "unknown",
 ]
-TableClassification = Literal["not_table", "candidate", "confirmed"]
+TableClassification = Literal[
+    "not_table",
+    "candidate",
+    "mixed_candidate",
+    "continuation_candidate",
+    "confirmed",
+]
 OcrQualityLevel = Literal["high", "medium", "low"]
 
 
@@ -62,6 +68,13 @@ class TableAssessment:
     reasons: list[str] = field(default_factory=list)
     header_line_index: int | None = None
     legal_list_ratio: float = 0.0
+    prose_ratio: float = 0.0
+    numeric_rows: int = 0
+    compact_value_rows: int = 0
+    multi_column_lines: int = 0
+    urban_parameter_hits: list[str] = field(default_factory=list)
+    zone_code_count: int = 0
+    content_profile: str = "unknown"
 
 
 @dataclass(slots=True)

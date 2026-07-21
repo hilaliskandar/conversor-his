@@ -56,7 +56,10 @@ def test_document_limit_zero_means_all_and_positive_limit_leaves_pending(
 
     with zipfile.ZipFile(zip_path, "w") as archive:
         for index in range(3):
-            archive.writestr(f"raiz/cidade/lei_{index}.pdf", b"%PDF-1.4\n")
+            archive.writestr(
+                f"raiz/cidade/lei_{index}.pdf",
+                f"%PDF-1.4\ndocumento-{index}\n".encode("ascii"),
+            )
         archive.writestr("raiz/cidade/notas.txt", "ignorar")
 
     def fake_convert_pdf(path: Path, output: Path, dpi: int, source_reference: str) -> Path:
@@ -71,6 +74,7 @@ def test_document_limit_zero_means_all_and_positive_limit_leaves_pending(
 
     limited = convert_zip_batch(zip_path, output_dir, document_limit=2)
     assert limited.success_count == 2
+    assert limited.duplicate_count == 0
     assert limited.pending_count == 1
 
     manifest = json.loads(limited.manifest_path.read_text(encoding="utf-8"))

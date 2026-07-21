@@ -25,6 +25,7 @@ _LEGAL_MARKER_RE = re.compile(
 @dataclass(slots=True)
 class NativeTextExtraction:
     text: str
+    raw_text: str
     selected_mode: str
     layout_character_count: int
     simple_character_count: int
@@ -80,13 +81,6 @@ def _extract_layout_with_messages(page: Any) -> tuple[str, list[str]]:
 
 
 def extract_page_text_detailed(page: Any) -> NativeTextExtraction:
-    """Extrai texto e registra limitações da camada textual da página.
-
-    O modo ``layout`` é comparado ao modo simples quando há rotação, pouco texto
-    ou espaçamento posicional excessivo. A saída selecionada é normalizada para
-    pesquisa, mantendo os textos tabulares brutos em etapa posterior.
-    """
-
     layout_text = ""
     messages: list[str] = []
     try:
@@ -105,7 +99,7 @@ def extract_page_text_detailed(page: Any) -> NativeTextExtraction:
             messages.append(f"simple_extraction_failed: {type(exc).__name__}: {exc}")
 
     selected_mode = "layout"
-    selected_text = layout_text
+    selected_raw_text = layout_text
     layout_score = _text_score(layout_text)
     simple_score = _text_score(simple_text)
 
@@ -116,10 +110,9 @@ def extract_page_text_detailed(page: Any) -> NativeTextExtraction:
         or (excessive_spacing and simple_score >= layout_score * 0.85)
     ):
         selected_mode = "simple"
-        selected_text = simple_text
+        selected_raw_text = simple_text
     elif excessive_spacing:
         selected_mode = "layout_normalized"
-        selected_text = normalize_prose_text(layout_text)
 
     if excessive_spacing:
         messages.append("layout_spacing_excessive: compared_with_simple_extraction")
@@ -128,7 +121,8 @@ def extract_page_text_detailed(page: Any) -> NativeTextExtraction:
         dict.fromkeys(message.strip() for message in messages if message.strip())
     )
     return NativeTextExtraction(
-        text=normalize_prose_text(selected_text),
+        text=normalize_prose_text(selected_raw_text),
+        raw_text=selected_raw_text,
         selected_mode=selected_mode,
         layout_character_count=len(layout_text),
         simple_character_count=len(simple_text),
@@ -138,10 +132,14 @@ def extract_page_text_detailed(page: Any) -> NativeTextExtraction:
 
 
 def extract_page_text(page: Any, preserve_layout: bool = True) -> str:
-    """Extrai o melhor texto disponível, preservando compatibilidade da API."""
+    """Extrai texto bruto para diagnóstico ou texto simples normalizado."""
 
     if preserve_layout:
-        return extract_page_text_detailed(page).text
+        try:
+            text, _ = _extract_layout_with_messages(page)
+            return text
+        except (TypeError, ValueError, KeyError):
+            return clean_invisible_characters(page.extract_text() or "").strip()
     return normalize_prose_text(page.extract_text() or "")
 
 
@@ -153,11 +151,9 @@ def _count_images_in_resources(resources: Any, visited: set[int]) -> int:
     resources = _resolve_pdf_object(resources)
     if not resources:
         return 0
-
     xobjects = _resolve_pdf_object(resources.get("/XObject"))
     if not xobjects:
         return 0
-
     count = 0
     for reference in xobjects.values():
         obj = _resolve_pdf_object(reference)
@@ -165,7 +161,6 @@ def _count_images_in_resources(resources: Any, visited: set[int]) -> int:
         if object_id in visited:
             continue
         visited.add(object_id)
-
         subtype = obj.get("/Subtype") if hasattr(obj, "get") else None
         if subtype == "/Image":
             count += 1
@@ -175,14 +170,10 @@ def _count_images_in_resources(resources: Any, visited: set[int]) -> int:
 
 
 def count_page_images(page: Any) -> int:
-    """Conta imagens XObject, inclusive em Form XObjects aninhados."""
-
     return _count_images_in_resources(page.get("/Resources"), set())
 
 
 def open_pdf(path: Path) -> PdfReader:
-    """Abre um PDF com tolerância a pequenas inconformidades estruturais."""
-
     return PdfReader(str(path), strict=False)
 
 
@@ -196,12 +187,7 @@ def extract_native_pages_detailed(path: Path) -> dict[int, NativeTextExtraction]
 
 def extract_native_pages(path: Path, preserve_layout: bool = True) -> dict[int, str]:
     reader = open_pdf(path)
-    if preserve_layout:
-        return {
-            index: extract_page_text_detailed(page).text
-            for index, page in enumerate(reader.pages, start=1)
-        }
     return {
-        index: extract_page_text(page, preserve_layout=False)
+        index: extract_page_text(page, preserve_layout=preserve_layout)
         for index, page in enumerate(reader.pages, start=1)
     }

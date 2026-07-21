@@ -1,8 +1,8 @@
 # Conversor HIS
 
-Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com suporte a OCR seletivo, rastreabilidade e controle de qualidade.
+Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com OCR seletivo, rastreabilidade e controle de qualidade.
 
-Versão atual: **0.5.2**.
+Versão atual: **0.5.3**.
 
 ## Princípios
 
@@ -10,27 +10,22 @@ Versão atual: **0.5.2**.
 - preserva integralmente os arquivos originais;
 - diagnostica cada página antes de escolher a rota de conversão;
 - aplica extração nativa quando possível e OCR quando necessário;
-- preserva mapas como imagens vinculadas ao Markdown;
-- preserva páginas tabulares confirmadas como texto linear e imagem para revisão estrutural;
-- mantém candidatas a tabela na rota nativa até confirmação;
+- preserva simultaneamente imagem e texto em páginas visuais;
+- preserva tabelas confirmadas e candidatas como texto linear e imagem;
+- compara extrações `layout` e simples quando encontra texto rotacionado;
 - distingue imagens de conteúdo de elementos gráficos decorativos recorrentes;
-- evita OCR em páginas exclusivamente decorativas;
-- registra as decisões de conversão em diagnóstico e manifesto auditáveis;
-- avalia a qualidade do OCR e sinaliza páginas que exigem revisão humana;
-- prevê medição de CER, WER, fidelidade estrutural e correspondência de elementos críticos;
-- bloqueia a entrada no corpus quando os thresholds de validação não são atingidos.
+- registra decisões, avisos, tempos e artefatos em manifestos auditáveis;
+- grava Markdown e manifestos de forma atômica;
+- permite limitar, interromper e retomar lotes municipais.
 
 ## Arquitetura atual
 
 - `pypdf`: leitura, diagnóstico, extração nativa e inspeção de objetos gráficos;
 - `pypdfium2`: renderização de páginas para OCR, mapas, tabelas e inspeção;
-- Tesseract: OCR local seletivo e fornecimento de dados de confiança;
+- Tesseract: OCR local seletivo e dados de confiança;
 - Pillow: gravação e tratamento das imagens geradas;
 - Typer e Rich: interface de linha de comando;
-- biblioteca padrão `zipfile`: processamento seguro de lotes municipais compactados;
-- Docling: rota estrutural opcional planejada para reconstrução de layouts e tabelas complexas;
-- PaddleOCR: componente opcional planejado para benchmark e fallback;
-- OCRmyPDF: integração opcional separada.
+- biblioteca padrão `zipfile`: processamento seguro de lotes municipais compactados.
 
 O núcleo não depende de PyMuPDF nem de Ghostscript.
 
@@ -40,18 +35,12 @@ O núcleo não depende de PyMuPDF nem de Ghostscript.
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -e ".[dev]"
-```
-
-Para OCR com Tesseract:
-
-```powershell
 pip install -e ".[dev,ocr]"
 ```
 
-## Uso inicial
+## Uso
 
-Diagnóstico de PDF individual:
+### Diagnóstico individual
 
 ```powershell
 conversor-his diagnosticar `
@@ -59,7 +48,7 @@ conversor-his diagnosticar `
   --saida "D:\corpus\processado"
 ```
 
-Conversão de PDF individual:
+### Conversão individual
 
 ```powershell
 conversor-his converter `
@@ -67,98 +56,115 @@ conversor-his converter `
   --saida "D:\corpus\processado"
 ```
 
-Conversão de lote municipal em ZIP:
+### Lote municipal completo
+
+O valor `0` em `--documentos` processa todos os PDFs elegíveis:
 
 ```powershell
 conversor-his converter-lote `
   --entrada "D:\corpus\originais\municipio.zip" `
-  --saida "D:\corpus\processado\municipio"
+  --saida "D:\corpus\processado\municipio" `
+  --documentos 0
 ```
 
-A estrutura de diretórios existente dentro do ZIP é reproduzida sob a pasta de saída. O ZIP original permanece intacto. Arquivos que não sejam PDF são ignorados e registrados na contagem geral. Uma falha em um diploma não interrompe os demais.
+### Amostra limitada
 
-Exemplo:
-
-```text
-ZIP:
-municipio/
-  plano_diretor/lei_complementar.pdf
-  uso_ocupacao/lei_urbanistica.pdf
-
-Saída:
-municipio/
-  plano_diretor/
-    lei_complementar.md
-    lei_complementar.manifest.json
-    lei_complementar_assets/
-  uso_ocupacao/
-    lei_urbanistica.md
-    lei_urbanistica.manifest.json
-    lei_urbanistica_assets/
+```powershell
+conversor-his converter-lote `
+  --entrada "D:\corpus\originais\municipio.zip" `
+  --saida "D:\corpus\processado\municipio_teste" `
+  --documentos 10
 ```
+
+A forma abreviada também é aceita:
+
+```powershell
+conversor-his converter-lote `
+  --entrada "D:\corpus\originais\municipio.zip" `
+  --saida "D:\corpus\processado\municipio_teste" `
+  -n 10
+```
+
+### Retomada
+
+```powershell
+conversor-his converter-lote `
+  --entrada "D:\corpus\originais\municipio.zip" `
+  --saida "D:\corpus\processado\municipio" `
+  --documentos 0 `
+  --retomar
+```
+
+A retomada reutiliza documentos concluídos somente quando coincidem o hash da fonte, a versão do conversor, o DPI e os produtos finais existentes.
+
+Por padrão, uma pasta-raiz única dentro do ZIP é removida para evitar estruturas duplicadas. Para mantê-la:
+
+```powershell
+conversor-his converter-lote `
+  --entrada "D:\corpus\originais\municipio.zip" `
+  --saida "D:\corpus\processado\municipio" `
+  --manter-raiz-comum
+```
+
+## Comportamento do lote
+
+- percorre subdiretórios internos do ZIP;
+- ordena os PDFs por caminho para tornar amostras reproduzíveis;
+- ignora arquivos não PDF;
+- rejeita travessia de diretórios, caminhos absolutos e links simbólicos;
+- detecta duplicidade de caminho e conteúdo por SHA-256;
+- não converte duas vezes PDFs exatamente iguais;
+- isola falhas por documento;
+- atualiza o manifesto geral antes e depois de cada PDF;
+- registra estados `processing`, `success`, `failed`, `duplicate` e `interrupted`;
+- mantém produtos já concluídos quando a execução é interrompida.
 
 ## Produtos gerados
 
-O comando de diagnóstico produz:
-
-- `<documento>.diagnostico.json`: condição das páginas e decisão preliminar de rota.
-
 O comando de conversão produz:
 
-- `<documento>.md`: conteúdo convertido, com rastreabilidade por página;
-- `<documento>.manifest.json`: descrição da operação executada e dos artefatos gerados;
-- `<documento>_assets/`: imagens de mapas, tabelas confirmadas e outros ativos preservados;
-- advertências no Markdown e no manifesto para páginas que exigem revisão.
+- `<documento>.md`: conteúdo convertido e rastreável por página;
+- `<documento>.manifest.json`: operação, hashes, rotas, avisos e tempo;
+- `<documento>_assets/`: imagens visuais e tabulares preservadas.
 
 O comando `converter-lote` também produz:
 
-- `<nome-do-zip>.lote.manifest.json`: inventário geral do lote, com caminho interno de cada PDF, resultado, saída e eventual erro.
+- `<nome-do-zip>.lote.manifest.json`: inventário incremental do lote, com limite, pendências, sucessos, falhas, duplicados, tempos e caminhos internos.
 
 ## Histórico de versões
+
+### 0.5.3 — preservação visual e execução retomável
+
+- acrescenta `--documentos` e `-n`, com `0` significando todos;
+- cria manifesto incremental atualizado após cada documento;
+- acrescenta `--retomar` com verificação de hash, versão, DPI e produtos;
+- detecta PDFs duplicados por conteúdo antes da conversão;
+- remove por padrão uma raiz comum redundante do ZIP;
+- exibe no terminal o documento em processamento;
+- registra tempo por documento e por lote;
+- captura avisos de texto rotacionado e compara extração `layout` e simples;
+- registra modo escolhido e contagens de caracteres por página;
+- preserva texto junto à imagem em páginas classificadas como visuais;
+- preserva também a imagem das candidatas a tabela;
+- escreve Markdown e manifestos atomicamente.
 
 ### 0.5.2 — processamento seguro de lotes municipais em ZIP
 
 - acrescenta o comando `converter-lote`;
-- processa recursivamente todos os PDFs contidos no ZIP;
-- preserva a árvore interna de diretórios na pasta de saída;
-- mantém o ZIP de entrada intacto e usa extração temporária por documento;
-- registra no manifesto individual a referência `arquivo.zip!/caminho/interno.pdf`;
-- cria manifesto geral do lote com sucessos, falhas e arquivos ignorados;
-- isola falhas por diploma, permitindo a continuidade do lote;
-- rejeita caminhos absolutos, travessia de diretórios, links simbólicos e duplicidades incompatíveis com sistemas sem diferenciação de maiúsculas;
-- valida a assinatura PDF antes do processamento;
-- mantém inalterada a heurística tabular validada na versão 0.5.1.
+- preserva a árvore interna de diretórios;
+- mantém o ZIP intacto e usa extração temporária por documento;
+- isola falhas por diploma;
+- valida caminhos e assinatura PDF.
 
 ### 0.5.1 — estabilização inicial da detecção tabular
 
 - introduz os estados `not_table`, `candidate` e `confirmed`;
-- mantém candidatas a tabela na rota nativa, sem gerar imagem nem revisão automática;
-- altera a rota para `structured` somente quando a tabela é confirmada;
-- restringe títulos tabulares e exclui artigos, parágrafos, incisos e alíneas;
-- procura cabeçalhos em blocos locais de uma ou duas linhas, em vez de toda a página;
-- exige pelo menos três grupos semânticos de cabeçalho;
-- valida linhas de dados subsequentes e limita o número plausível de colunas recorrentes;
-- penaliza padrões jurídicos enumerativos e listas terminadas em ponto e vírgula;
-- registra `table_candidate_pages` separadamente no manifesto;
-- acrescenta testes para a tabela de ZEIS, tabela de parâmetros, listas jurídicas e memoriais de coordenadas;
-- mantém a funcionalidade na série `0.5.x` até que precisão, revocação e F1 atinjam os critérios de estabilização.
-
-### 0.5.0 — páginas decorativas e detecção experimental de tabelas
-
-- cria as rotas `decorative` e `structured`;
-- classifica páginas sem texto, compostas exclusivamente por gráficos recorrentes já confirmados, como `decorative_only` ou `back_cover`;
-- dispensa OCR nessas páginas e preserva referência explícita ao PDF original;
-- introduz detecção experimental de tabelas baseada em evidência semântica e alinhamento recorrente de colunas;
-- registra pontuação, cabeçalhos identificados, linhas candidatas, colunas estáveis e razões da classificação;
-- preserva páginas tabulares como imagem integral e texto linear bruto;
-- inclui `table_pages` e `decorative_pages` no manifesto;
-- acrescenta testes de regressão para contracapas, tabelas urbanísticas e listas de coordenadas.
+- restringe a confirmação tabular e reduz falsos positivos jurídicos;
+- registra candidatas separadamente no manifesto.
 
 ## Estado atual
 
-A versão `0.5.2` mantém a estabilização da detecção tabular da série `0.5.x` e acrescenta processamento de lotes municipais em ZIP sem modificar os thresholds já validados.
-
-A promoção para `0.6.0` dependerá de precisão mínima de 0,95, revocação mínima de 0,90, F1 mínima de 0,92 e ausência de regressões nas rotas de mapas, OCR e páginas decorativas.
+A série `0.5.x` permanece experimental. A promoção para `0.6.0` dependerá de precisão mínima de 0,95, revocação mínima de 0,90, F1 mínima de 0,92 e ausência de regressões nas rotas de mapas, OCR, tabelas e páginas decorativas.
 
 ## Licenciamento
 

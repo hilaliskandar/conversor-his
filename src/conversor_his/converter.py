@@ -14,6 +14,14 @@ from .models import ConversionManifest
 from .ocr.quality import assess_ocr_quality
 from .ocr.tesseract_engine import TesseractEngine
 from .tables import extract_table_title, save_table_image
+from .text_normalization import clean_invisible_characters, normalize_prose_text
+
+
+def _markdown_image(alt_text: str, relative_image: str) -> str:
+    """Gera referência de imagem válida mesmo quando o caminho contém espaços."""
+
+    safe_alt = alt_text.replace("[", "(").replace("]", ")")
+    return f"![{safe_alt}](<{relative_image}>)"
 
 
 def _visual_chunk(
@@ -24,12 +32,13 @@ def _visual_chunk(
     source_mode: str,
 ) -> str:
     text_block = ""
-    if text.strip():
+    normalized_text = normalize_prose_text(text)
+    if normalized_text:
         text_block = (
             "\n\n> Texto associado à página visual, preservado para pesquisa e "
             "rastreabilidade. A interpretação espacial deve consultar a imagem.\n\n"
             "```text\n"
-            f"{text}\n"
+            f"{normalized_text}\n"
             "```\n"
         )
     return (
@@ -38,7 +47,7 @@ def _visual_chunk(
         f"## Página {page_number} — {title}\n\n"
         "> Conteúdo visual possivelmente cartográfico preservado integralmente. "
         "A classificação deve ser conferida quando a página não representar mapa ou planta.\n\n"
-        f"![{title}]({relative_image})"
+        f"{_markdown_image(title, relative_image)}"
         f"{text_block}"
     )
 
@@ -51,6 +60,7 @@ def _table_chunk(
     candidate: bool = False,
 ) -> str:
     classification = "candidata" if candidate else "confirmada"
+    raw_text = clean_invisible_characters(text).strip()
     return (
         f"<!-- pagina_original: {page_number}; tipo: tabela_{classification}; "
         "rota: structured:preservacao; revisao: sim -->\n\n"
@@ -58,9 +68,9 @@ def _table_chunk(
         f"> **Revisão estrutural necessária:** estrutura tabular {classification}. "
         "O texto linear e a imagem foram preservados; as relações entre linhas e colunas "
         "devem ser conferidas.\n\n"
-        f"![Página tabular {page_number}]({relative_image})\n\n"
+        f"{_markdown_image(f'Página tabular {page_number}', relative_image)}\n\n"
         "```text\n"
-        f"{text}\n"
+        f"{raw_text}\n"
         "```\n"
     )
 
@@ -84,10 +94,11 @@ def _ocr_chunk(page_number: int, text: str, requires_review: bool) -> str:
             "> **Revisão necessária:** o resultado do OCR apresentou baixa ou moderada "
             "qualidade e não deve ser tratado como transcrição normativa confiável.\n\n"
         )
+    normalized_text = normalize_prose_text(text)
     return (
         f"<!-- pagina_original: {page_number}; rota: ocr:tesseract+pdfium; "
         f"revisao: {'sim' if requires_review else 'nao'} -->\n\n"
-        f"## Página {page_number}\n\n{notice}{text}\n"
+        f"## Página {page_number}\n\n{notice}{normalized_text}\n"
     )
 
 
@@ -244,7 +255,7 @@ def convert_pdf(
         chunks.append(
             f"<!-- pagina_original: {page.page_number}; rota: native:pypdf; "
             f"modo: {extraction.selected_mode} -->\n\n"
-            f"## Página {page.page_number}\n\n{review_notice}{native_text}\n"
+            f"## Página {page.page_number}\n\n{review_notice}{normalize_prose_text(native_text)}\n"
         )
 
     markdown_path = output_dir / f"{path.stem}.md"

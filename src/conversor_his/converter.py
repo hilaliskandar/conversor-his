@@ -12,6 +12,7 @@ from .maps import extract_map_title, is_map_page, save_map_image
 from .models import ConversionManifest
 from .ocr.quality import assess_ocr_quality
 from .ocr.tesseract_engine import TesseractEngine
+from .tables import extract_table_title, save_table_image
 
 
 def _map_chunk(page_number: int, title: str, relative_image: str) -> str:
@@ -21,6 +22,38 @@ def _map_chunk(page_number: int, title: str, relative_image: str) -> str:
         "> Conteúdo cartográfico preservado como imagem. A interpretação territorial "
         "deve consultar a representação visual original.\n\n"
         f"![{title}]({relative_image})\n"
+    )
+
+
+def _table_chunk(
+    page_number: int,
+    title: str,
+    text: str,
+    relative_image: str,
+) -> str:
+    return (
+        f"<!-- pagina_original: {page_number}; tipo: tabela; "
+        "rota: structured:preservacao; revisao: sim -->\n\n"
+        f"## Página {page_number} — {title}\n\n"
+        "> **Revisão estrutural necessária:** foram detectados sinais de tabela ou quadro. "
+        "O texto abaixo preserva a extração linear, mas as relações entre linhas e colunas "
+        "devem ser conferidas na imagem da página.\n\n"
+        f"![Página tabular {page_number}]({relative_image})\n\n"
+        "```text\n"
+        f"{text}\n"
+        "```\n"
+    )
+
+
+def _decorative_chunk(page_number: int, page_type: str) -> str:
+    label = "contracapa" if page_type == "back_cover" else "página decorativa"
+    return (
+        f"<!-- pagina_original: {page_number}; tipo: {page_type}; "
+        "rota: decorative; revisao: nao -->\n\n"
+        f"## Página {page_number} — {label.capitalize()}\n\n"
+        "> Página sem conteúdo textual normativo detectável. Os elementos gráficos "
+        "foram classificados como decorativos recorrentes; o arquivo PDF original "
+        "permanece como fonte visual de referência.\n"
     )
 
 
@@ -48,6 +81,8 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
     asset_paths: list[Path] = []
     used_ocr_pages: list[int] = []
     map_pages: list[int] = []
+    table_pages: list[int] = []
+    decorative_pages: list[int] = []
     review_pages: list[int] = []
 
     for page in diagnosis.pages:
@@ -67,6 +102,33 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
             chunks.append(_map_chunk(page.page_number, title, relative_image))
             continue
 
+        if page.route == "decorative":
+            decorative_pages.append(page.page_number)
+            chunks.append(_decorative_chunk(page.page_number, page.page_type))
+            continue
+
+        if page.route == "structured":
+            title = extract_table_title(native_text, page.page_number)
+            image_path = save_table_image(
+                path,
+                page.page_number,
+                assets_dir,
+                dpi=min(dpi, 300),
+            )
+            asset_paths.append(image_path)
+            table_pages.append(page.page_number)
+            review_pages.append(page.page_number)
+            relative_image = image_path.relative_to(output_dir).as_posix()
+            chunks.append(
+                _table_chunk(
+                    page.page_number,
+                    title,
+                    native_text,
+                    relative_image,
+                )
+            )
+            continue
+
         if page.route == "ocr":
             used_ocr_pages.append(page.page_number)
             text, confidences = ocr.recognize_page_with_confidence(
@@ -79,6 +141,7 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
 
             if is_map_page(text, max(page.image_count, 1)):
                 page.suspected_map = True
+                page.page_type = "map"
                 page.route = "map"
                 page.warnings.append(
                     "mapa identificado apos OCR; texto substituido por imagem"
@@ -123,6 +186,8 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
         asset_paths=asset_paths,
         used_ocr_pages=used_ocr_pages,
         map_pages=map_pages,
+        table_pages=table_pages,
+        decorative_pages=decorative_pages,
         review_pages=review_pages,
         dpi=dpi,
         converter_version=__version__,

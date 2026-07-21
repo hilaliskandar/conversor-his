@@ -2,7 +2,7 @@
 
 Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com OCR seletivo, rastreabilidade e controle de qualidade.
 
-Versão atual: **0.6.0**.
+Versão atual: **0.6.1**.
 
 ## Princípios
 
@@ -11,10 +11,10 @@ Versão atual: **0.6.0**.
 - diagnostica cada página antes de escolher a rota de conversão;
 - aplica extração nativa quando possível e OCR quando necessário;
 - preserva simultaneamente imagem e texto em páginas visuais;
-- preserva tabelas confirmadas e candidatas como texto linear e imagem;
+- preserva tabelas confirmadas, candidatas, mistas e continuações como texto bruto e imagem;
 - compara extrações `layout` e simples quando encontra rotação ou espaçamento excessivo;
 - normaliza espaços e caracteres invisíveis na versão textual pesquisável;
-- mantém texto bruto em blocos tabulares para preservar relações posicionais;
+- mantém o `layout` bruto para diagnóstico estrutural e preservação tabular;
 - registra decisões, avisos, tempos e artefatos em manifestos auditáveis;
 - grava Markdown e manifestos de forma atômica;
 - permite limitar, interromper e retomar lotes municipais.
@@ -82,6 +82,30 @@ A retomada exige coincidência entre hash da fonte, versão do conversor, DPI e 
 
 Por padrão, uma pasta-raiz única do ZIP é removida. Use `--manter-raiz-comum` para preservá-la.
 
+## Detecção tabular
+
+A classificação é executada sobre o texto bruto em modo `layout`, antes da normalização destinada à pesquisa. O detector considera:
+
+- títulos de tabela, quadro e anexo;
+- cabeçalhos urbanísticos;
+- posições horizontais recorrentes;
+- códigos de zonas e macrozonas;
+- lote, testada, recuos, taxas, gabarito e coeficiente de aproveitamento;
+- linhas compactas com valores e requisitos;
+- continuidade de matrizes em páginas sem cabeçalho repetido;
+- páginas mistas, com prosa e quadro na mesma página;
+- penalizações para incisos, definições jurídicas, parágrafos longos e coordenadas.
+
+Estados possíveis:
+
+- `confirmed`;
+- `candidate`;
+- `mixed_candidate`;
+- `continuation_candidate`;
+- `not_table`.
+
+As quatro primeiras classes preservam imagem e texto bruto para revisão estrutural.
+
 ## Comportamento do lote
 
 - ordena os PDFs por caminho para tornar amostras reproduzíveis;
@@ -97,11 +121,22 @@ Por padrão, uma pasta-raiz única do ZIP é removida. Use `--manter-raiz-comum`
 ## Produtos gerados
 
 - `<documento>.md`: conteúdo pesquisável e rastreável por página;
-- `<documento>.manifest.json`: hashes, rotas, avisos, artefatos e tempo;
+- `<documento>.manifest.json`: hashes, rotas, evidências, avisos, artefatos e tempo;
 - `<documento>_assets/`: imagens visuais e tabulares;
 - `<nome-do-zip>.lote.manifest.json`: inventário incremental do lote.
 
 ## Histórico de versões
+
+### 0.6.1 — detecção tabular orientada pelo corpus normativo
+
+- corrige a classificação para usar o `layout` bruto, sem perder os espaços que representam colunas;
+- recupera matrizes de parâmetros urbanísticos como a página 131 do Plano Diretor de Abreu e Lima;
+- mantém listas de definições jurídicas como `not_table`;
+- reconhece códigos de zona, parâmetros urbanísticos e linhas compactas de valores;
+- acrescenta `mixed_candidate` para páginas parcialmente tabulares;
+- acrescenta `continuation_candidate` para quadros que prosseguem sem cabeçalho repetido;
+- registra no manifesto evidências como linhas numéricas, códigos de zona, parâmetros encontrados e perfil do conteúdo;
+- incorpora testes derivados de exemplos reais do corpus, sem regras específicas por município ou página.
 
 ### 0.6.0 — validação operacional em corpus normativo real
 
@@ -123,14 +158,9 @@ Por padrão, uma pasta-raiz única do ZIP é removida. Use `--manter-raiz-comum`
 - captura texto rotacionado;
 - preserva texto e imagem em páginas visuais e tabulares.
 
-### 0.5.2 — processamento seguro de ZIP
-
-- acrescenta o comando `converter-lote`;
-- preserva a árvore interna e isola falhas por diploma.
-
 ## Estado atual
 
-A versão 0.6.0 é considerada operacional para conversão controlada. A validação formal de precisão, revocação e F1 das classificações visual e tabular permanece como atividade contínua de monitoramento e não deve ser confundida com a integridade operacional já demonstrada.
+A série 0.6.x é operacional para conversão controlada. A detecção tabular permanece em calibração progressiva sobre corpus real, com prioridade para evitar falsos negativos em matrizes de parâmetros urbanísticos sem reintroduzir falsos positivos em listas jurídicas.
 
 ## Licenciamento
 

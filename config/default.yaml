@@ -1,0 +1,29 @@
+project:
+  preserve_originals: true
+  move_originals: false
+  language: por
+
+thresholds:
+  page_completeness: 1.0
+  cer_max: 0.005
+  wer_max: 0.01
+  critical_exact_match: 1.0
+  structural_fidelity_min: 0.995
+  traceability_min: 1.0
+  critical_errors_max: 0
+
+ocr:
+  primary: tesseract
+  fallback: paddle
+  dpi: 300
+  tesseract:
+    lang: por
+    psm: 6
+    oem: 1
+  paddle:
+    enabled: false
+
+sampling:
+  validate_all_until_pages: 20
+  medium_document_ratio: 0.30
+  large_document_min_pages: 25

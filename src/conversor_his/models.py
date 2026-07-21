@@ -27,6 +27,7 @@ TableClassification = Literal[
     "candidate",
     "mixed_candidate",
     "continuation_candidate",
+    "visual_candidate",
     "confirmed",
 ]
 OcrQualityLevel = Literal["high", "medium", "low"]
@@ -75,6 +76,12 @@ class TableAssessment:
     urban_parameter_hits: list[str] = field(default_factory=list)
     zone_code_count: int = 0
     content_profile: str = "unknown"
+    visual_grid_detected: bool = False
+    visual_grid_strong: bool = False
+    visual_grid_score: int = 0
+    vector_rectangle_count: int = 0
+    vector_horizontal_lines: int = 0
+    vector_vertical_lines: int = 0
 
 
 @dataclass(slots=True)

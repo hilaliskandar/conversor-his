@@ -2,7 +2,7 @@
 
 Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com OCR seletivo, rastreabilidade e controle de qualidade.
 
-Versão atual: **0.6.1**.
+Versão atual: **0.6.2**.
 
 ## Princípios
 
@@ -11,10 +11,12 @@ Versão atual: **0.6.1**.
 - diagnostica cada página antes de escolher a rota de conversão;
 - aplica extração nativa quando possível e OCR quando necessário;
 - preserva simultaneamente imagem e texto em páginas visuais;
-- preserva tabelas confirmadas, candidatas, mistas e continuações como texto bruto e imagem;
+- preserva tabelas confirmadas, candidatas, mistas, visuais e continuações como texto bruto e imagem;
+- combina evidência textual com linhas e retângulos vetoriais do próprio PDF;
 - compara extrações `layout` e simples quando encontra rotação ou espaçamento excessivo;
 - normaliza espaços e caracteres invisíveis na versão textual pesquisável;
 - mantém o `layout` bruto para diagnóstico estrutural e preservação tabular;
+- reutiliza a extração nativa entre diagnóstico e conversão;
 - registra decisões, avisos, tempos e artefatos em manifestos auditáveis;
 - grava Markdown e manifestos de forma atômica;
 - permite limitar, interromper e retomar lotes municipais.
@@ -84,7 +86,7 @@ Por padrão, uma pasta-raiz única do ZIP é removida. Use `--manter-raiz-comum`
 
 ## Detecção tabular
 
-A classificação é executada sobre o texto bruto em modo `layout`, antes da normalização destinada à pesquisa. O detector considera:
+A classificação textual é executada sobre o texto bruto em modo `layout`, antes da normalização destinada à pesquisa. O detector considera:
 
 - títulos de tabela, quadro e anexo;
 - cabeçalhos urbanísticos;
@@ -96,15 +98,25 @@ A classificação é executada sobre o texto bruto em modo `layout`, antes da no
 - páginas mistas, com prosa e quadro na mesma página;
 - penalizações para incisos, definições jurídicas, parágrafos longos e coordenadas.
 
+A versão 0.6.2 acrescenta evidência vetorial diretamente das operações gráficas do PDF:
+
+- retângulos finos usados como bordas de células;
+- linhas horizontais repetidas;
+- linhas verticais repetidas;
+- grades que ocupam apenas parte da página;
+- quadros genéricos, inclusive viários e descritivos;
+- proteção contra páginas jurídicas que imitam colunas sem possuir grade.
+
 Estados possíveis:
 
 - `confirmed`;
 - `candidate`;
 - `mixed_candidate`;
 - `continuation_candidate`;
+- `visual_candidate`;
 - `not_table`.
 
-As quatro primeiras classes preservam imagem e texto bruto para revisão estrutural.
+As cinco primeiras classes preservam imagem e texto bruto para revisão estrutural. As imagens tabulares são geradas a até 200 DPI; o DPI configurado continua sendo utilizado para OCR.
 
 ## Comportamento do lote
 
@@ -126,6 +138,17 @@ As quatro primeiras classes preservam imagem e texto bruto para revisão estrutu
 - `<nome-do-zip>.lote.manifest.json`: inventário incremental do lote.
 
 ## Histórico de versões
+
+### 0.6.2 — evidência vetorial e controle de continuidade
+
+- detecta grades a partir de operações vetoriais do PDF, sem rasterizar todas as páginas;
+- recupera quadros viários, tabelas genéricas e pequenas regiões tabulares;
+- acrescenta `visual_candidate` para páginas com grade forte e pouca evidência textual;
+- registra retângulos, linhas horizontais, linhas verticais e escore visual no manifesto;
+- rebaixa prosa jurídica que imita tabela quando não existe grade nem título tabular;
+- reutiliza a extração nativa no diagnóstico e na conversão, eliminando processamento duplicado;
+- limita imagens tabulares a 200 DPI para reduzir tempo e armazenamento;
+- acrescenta testes para grade verdadeira, moldura simples e emenda legal sem tabela.
 
 ### 0.6.1 — detecção tabular orientada pelo corpus normativo
 
@@ -160,7 +183,7 @@ As quatro primeiras classes preservam imagem e texto bruto para revisão estrutu
 
 ## Estado atual
 
-A série 0.6.x é operacional para conversão controlada. A detecção tabular permanece em calibração progressiva sobre corpus real, com prioridade para evitar falsos negativos em matrizes de parâmetros urbanísticos sem reintroduzir falsos positivos em listas jurídicas.
+A série 0.6.x é operacional para conversão controlada. A detecção tabular permanece em calibração progressiva sobre corpus real. A 0.6.2 prioriza a recuperação de grades e continuações, sem transformar alinhamentos artificiais da prosa jurídica em tabelas.
 
 ## Licenciamento
 

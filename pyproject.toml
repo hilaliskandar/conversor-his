@@ -8,9 +8,15 @@ version = "0.2.0"
 description = "Conversao auditavel de legislacao municipal para Markdown estruturado"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "MIT"
-authors = [{name = "Projeto Protocolo HIS"}]
+license = { text = "MIT" }
+authors = [{ name = "Projeto Protocolo HIS" }]
 classifiers = [
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
-  "Programming
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "pypdf>=5.0",
+  "pypdfium2>=4.30",
+  "pydantic>=

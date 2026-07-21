@@ -21,5 +21,15 @@ def _json_ready(value: Any) -> Any:
 
 def write_manifest(payload: Any, output_path: Path) -> None:
     data = _json_ready(payload)
-    data["generated_at"] = datetime.now(timezone.utc).isoformat()
-    output_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    now = datetime.now(timezone.utc).isoformat()
+    if isinstance(data, dict):
+        data.setdefault("generated_at", now)
+        data["updated_at"] = now
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    temporary_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temporary_path.replace(output_path)

@@ -2,7 +2,7 @@
 
 Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com suporte a OCR seletivo, rastreabilidade e controle de qualidade.
 
-Versão atual: **0.4.0**.
+Versão atual: **0.5.0**.
 
 ## Princípios
 
@@ -11,7 +11,9 @@ Versão atual: **0.4.0**.
 - diagnostica cada página antes de escolher a rota de conversão;
 - aplica extração nativa quando possível e OCR quando necessário;
 - preserva mapas como imagens vinculadas ao Markdown;
+- preserva páginas tabulares como texto linear e imagem para revisão estrutural;
 - distingue imagens de conteúdo de elementos gráficos decorativos recorrentes;
+- evita OCR em páginas exclusivamente decorativas;
 - registra as decisões de conversão em diagnóstico e manifesto auditáveis;
 - avalia a qualidade do OCR e sinaliza páginas que exigem revisão humana;
 - prevê medição de CER, WER, fidelidade estrutural e correspondência de elementos críticos;
@@ -20,11 +22,11 @@ Versão atual: **0.4.0**.
 ## Arquitetura atual
 
 - `pypdf`: leitura, diagnóstico, extração nativa e inspeção de objetos gráficos;
-- `pypdfium2`: renderização de páginas para OCR, mapas e inspeção;
+- `pypdfium2`: renderização de páginas para OCR, mapas, tabelas e inspeção;
 - Tesseract: OCR local seletivo e fornecimento de dados de confiança;
 - Pillow: gravação e tratamento das imagens geradas;
 - Typer e Rich: interface de linha de comando;
-- Docling: rota estrutural opcional planejada para layouts e tabelas complexas;
+- Docling: rota estrutural opcional planejada para reconstrução de layouts e tabelas complexas;
 - PaddleOCR: componente opcional planejado para benchmark e fallback;
 - OCRmyPDF: integração opcional separada.
 
@@ -79,10 +81,23 @@ O comando de conversão pode produzir:
 
 - `<documento>.md`: conteúdo convertido, com rastreabilidade por página;
 - `<documento>.manifest.json`: descrição da operação executada e dos artefatos gerados;
-- `<documento>_assets/`: imagens de mapas e outros ativos preservados;
+- `<documento>_assets/`: imagens de mapas, tabelas e outros ativos preservados;
 - advertências no Markdown e no manifesto para páginas que exigem revisão.
 
 ## Histórico de versões
+
+### 0.5.0 — páginas decorativas e detecção conservadora de tabelas
+
+- cria as rotas `decorative` e `structured`;
+- classifica páginas sem texto, compostas exclusivamente por gráficos recorrentes já confirmados, como `decorative_only` ou `back_cover`;
+- dispensa OCR nessas páginas e preserva referência explícita ao PDF original;
+- introduz detecção de tabelas baseada em evidência semântica e alinhamento recorrente de colunas;
+- evita usar apenas espaços ou densidade numérica, reduzindo falsos positivos em memoriais de coordenadas;
+- registra pontuação, cabeçalhos identificados, linhas candidatas, colunas estáveis e razões da classificação;
+- preserva páginas tabulares como imagem integral e texto linear bruto;
+- inclui `table_pages` e `decorative_pages` no manifesto;
+- envia páginas tabulares automaticamente para revisão estrutural;
+- acrescenta testes de regressão para contracapas, tabelas urbanísticas e listas de coordenadas.
 
 ### 0.4.0 — controle de qualidade pós-OCR e manifesto de conversão
 
@@ -122,9 +137,9 @@ O comando de conversão pode produzir:
 
 ## Estado atual
 
-A versão `0.4.0` consolida as rotas de extração nativa, OCR seletivo, preservação cartográfica, supressão lógica de elementos gráficos repetitivos e controle preliminar de qualidade pós-OCR.
+A versão `0.5.0` consolida as rotas de extração nativa, OCR seletivo, preservação cartográfica, preservação tabular, supressão lógica de elementos gráficos repetitivos e classificação de páginas exclusivamente decorativas.
 
-A qualidade de tabelas, layouts complexos, segmentação jurídica e normalização textual continuará sendo medida e aprimorada por meio do benchmark do corpus legislativo.
+A reconstrução automática de tabelas, a segmentação jurídica e a normalização textual continuarão sendo medidas e aprimoradas por meio do benchmark do corpus legislativo.
 
 ## Licenciamento
 

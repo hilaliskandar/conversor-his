@@ -16,6 +16,12 @@ from .maps import is_map_page
 from .models import DocumentDiagnosis, PageDiagnosis
 from .tables import assess_table
 
+_TABLE_CANDIDATE_CLASSES = {
+    "candidate",
+    "mixed_candidate",
+    "continuation_candidate",
+}
+
 
 def diagnose_pdf(
     path: Path,
@@ -39,22 +45,17 @@ def diagnose_pdf(
             else extract_page_text_detailed(page)
         )
         text = extraction.text
+        raw_text = extraction.raw_text
         fallback_image_count = count_page_images(page)
         graphics = graphic_summaries.get(index)
-        raw_image_count = (
-            graphics.raw_image_count if graphics is not None else fallback_image_count
-        )
-        decorative_image_count = (
-            graphics.decorative_image_count if graphics is not None else 0
-        )
-        content_image_count = (
-            graphics.content_image_count if graphics is not None else fallback_image_count
-        )
+        raw_image_count = graphics.raw_image_count if graphics is not None else fallback_image_count
+        decorative_image_count = graphics.decorative_image_count if graphics is not None else 0
+        content_image_count = graphics.content_image_count if graphics is not None else fallback_image_count
         char_count = len(text.strip())
         suspected_map = is_map_page(text, content_image_count)
-        table_assessment = assess_table(text)
+        table_assessment = assess_table(raw_text)
         suspected_table = table_assessment.classification == "confirmed"
-        table_candidate = table_assessment.classification == "candidate"
+        table_candidate = table_assessment.classification in _TABLE_CANDIDATE_CLASSES
         has_native = char_count >= min_native_chars
         decorative_only = (
             char_count == 0
@@ -89,8 +90,9 @@ def diagnose_pdf(
                 "estrutura tabular confirmada: preservar imagem e exigir revisao estrutural"
             )
         elif table_candidate:
+            label = table_assessment.classification.replace("_", " ")
             page_warnings.append(
-                "candidata a tabela: preservar texto e imagem para revisao estrutural"
+                f"{label}: preservar texto bruto e imagem para revisao estrutural"
             )
         elif 0 < char_count < min_native_chars:
             page_warnings.append("camada textual insuficiente")

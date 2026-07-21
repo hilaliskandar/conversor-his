@@ -28,7 +28,8 @@ _LEGAL_DEFINITION_RE = re.compile(
 _COORDINATE_RE = re.compile(r"\b[XY]\s*=\s*\d", re.IGNORECASE)
 _EXPLICIT_TITLE_RE = re.compile(
     r"^(?:TABELA|QUADRO)\b|"
-    r"^ANEXO\b.{0,180}\b(?:LISTAGEM|TABELA|QUADRO|PARAMETROS?|ZONAS?|ZEIS|USOS?|INSTRUMENTOS?)\b",
+    r"^ANEXO\b.{0,180}\b(?:LISTAGEM|TABELA|QUADRO|PARAMETROS?|ZONAS?|ZEIS|"
+    r"USOS?|INSTRUMENTOS?)\b",
     re.IGNORECASE,
 )
 _NOMINAL_TITLE_RE = re.compile(
@@ -39,14 +40,20 @@ _NOMINAL_TITLE_RE = re.compile(
 _HEADER_GROUPS = {
     "territorial": re.compile(r"\b(?:ZONA|ZONAS|ZEIS|SETOR|AREA|MACROZONA)\b"),
     "identificador": re.compile(r"\b(?:CODIGO|NUMERO|N[Oº°]|LEI|DECRETO)\b"),
-    "denominacao": re.compile(r"\b(?:COMUNIDADE|DENOMINACAO|LOCALIDADE|DESCRICAO|NOME)\b"),
+    "denominacao": re.compile(
+        r"\b(?:COMUNIDADE|DENOMINACAO|LOCALIDADE|DESCRICAO|NOME)\b"
+    ),
     "parametro": re.compile(
         r"\b(?:COEFICIENTE|TAXA|GABARITO|RECUO|APROVEITAMENTO|SOLO NATURAL|"
         r"TESTADA|LOTE MINIMO|AREA MINIMA|TO|TSN|CA|GM|LM|TM)\b"
     ),
-    "instrumento": re.compile(r"\b(?:INSTRUMENTOS?|OUTORGA|TRANSFERENCIA|POLITICA URBANA)\b"),
+    "instrumento": re.compile(
+        r"\b(?:INSTRUMENTOS?|OUTORGA|TRANSFERENCIA|POLITICA URBANA)\b"
+    ),
     "observacao": re.compile(r"\b(?:OBSERVACOES?|REQUISITOS? ESPECIAIS)\b"),
-    "uso": re.compile(r"\b(?:USOS?|HABITACIONAL|RESIDENCIAL|NAO HABITACIONAL|MISTO)\b"),
+    "uso": re.compile(
+        r"\b(?:USOS?|HABITACIONAL|RESIDENCIAL|NAO HABITACIONAL|MISTO)\b"
+    ),
     "dimensao": re.compile(r"\b(?:M2|M²|METROS?|PAVTOS?|PAVIMENTOS?)\b"),
 }
 _URBAN_PARAMETER_PATTERNS = {
@@ -63,7 +70,9 @@ _URBAN_PARAMETER_PATTERNS = {
 
 def _ascii_upper(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(char for char in decomposed if not unicodedata.combining(char)).upper()
+    return "".join(
+        char for char in decomposed if not unicodedata.combining(char)
+    ).upper()
 
 
 def _cell_starts(line: str) -> list[int]:
@@ -78,7 +87,10 @@ def _cell_starts(line: str) -> list[int]:
     return sorted(set(starts))
 
 
-def _stable_column_count(row_positions: list[list[int]], tolerance: int = 4) -> int:
+def _stable_column_count(
+    row_positions: list[list[int]],
+    tolerance: int = 4,
+) -> int:
     if not row_positions:
         return 0
     bins: Counter[int] = Counter()
@@ -97,17 +109,25 @@ def _is_title_line(line: str) -> bool:
     normalized = _ascii_upper(" ".join(line.split()))
     if not normalized or len(normalized) > 220 or _LEGAL_PREFIX_RE.search(normalized):
         return False
-    return bool(_EXPLICIT_TITLE_RE.search(normalized) or _NOMINAL_TITLE_RE.search(normalized))
+    return bool(
+        _EXPLICIT_TITLE_RE.search(normalized) or _NOMINAL_TITLE_RE.search(normalized)
+    )
 
 
 def _header_hits(text: str) -> list[str]:
     normalized = _ascii_upper(text)
-    return [name for name, pattern in _HEADER_GROUPS.items() if pattern.search(normalized)]
+    return [
+        name for name, pattern in _HEADER_GROUPS.items() if pattern.search(normalized)
+    ]
 
 
 def _urban_parameter_hits(text: str) -> list[str]:
     normalized = _ascii_upper(text)
-    return [name for name, pattern in _URBAN_PARAMETER_PATTERNS.items() if pattern.search(normalized)]
+    return [
+        name
+        for name, pattern in _URBAN_PARAMETER_PATTERNS.items()
+        if pattern.search(normalized)
+    ]
 
 
 def _best_header_window(lines: list[str]) -> tuple[int, int, list[str]] | None:
@@ -118,12 +138,17 @@ def _best_header_window(lines: list[str]) -> tuple[int, int, list[str]] | None:
             if end > len(lines):
                 continue
             window_lines = lines[start:end]
-            if any(_LEGAL_PREFIX_RE.search(_ascii_upper(line.strip())) for line in window_lines):
+            if any(
+                _LEGAL_PREFIX_RE.search(_ascii_upper(line.strip()))
+                for line in window_lines
+            ):
                 continue
             combined = " ".join(window_lines)
             hits = _header_hits(combined)
             urban_hits = _urban_parameter_hits(combined)
-            separators = sum(max(len(_cell_starts(line)) - 1, 0) for line in window_lines)
+            separators = sum(
+                max(len(_cell_starts(line)) - 1, 0) for line in window_lines
+            )
             if len(hits) < 2 or separators < 2:
                 continue
             rank = (len(hits) + len(urban_hits), separators, -start)
@@ -140,6 +165,17 @@ def _is_legal_list_line(line: str) -> bool:
         _LEGAL_PREFIX_RE.search(normalized)
         or _LEGAL_DEFINITION_RE.search(normalized)
         or normalized.endswith(";")
+    )
+
+
+def _line_has_compact_values(line: str) -> bool:
+    starts = _cell_starts(line)
+    if len(starts) < 3:
+        return False
+    normalized = _ascii_upper(line)
+    numbers = len(_NUMBER_RE.findall(line))
+    return len(line.split()) <= 24 and (
+        numbers >= 2 or bool(_ZONE_CODE_RE.search(normalized))
     )
 
 
@@ -170,44 +206,59 @@ def assess_table(text: str) -> TableAssessment:
     coordinate_lines = sum(bool(_COORDINATE_RE.search(line)) for line in lines)
     legal_lines_total = sum(_is_legal_list_line(line) for line in lines)
     multi_column_lines = sum(len(_cell_starts(line)) >= 3 for line in lines)
+    aligned_value_lines = sum(_line_has_compact_values(line) for line in lines)
+    numeric_aligned_lines = sum(
+        len(_cell_starts(line)) >= 3 and len(_NUMBER_RE.findall(line)) >= 2
+        for line in lines
+    )
     zone_code_count = len(_ZONE_CODE_RE.findall(normalized_page))
     page_urban_hits = _urban_parameter_hits(normalized_page)
 
-    if coordinate_lines >= max(4, len(lines) // 3) and not _EXPLICIT_TITLE_RE.search(normalized_page):
+    if (
+        coordinate_lines >= max(4, len(lines) // 3)
+        and not _EXPLICIT_TITLE_RE.search(normalized_page)
+    ):
         result = _empty_assessment("coordinates")
         result.multi_column_lines = multi_column_lines
         return result
 
     header = _best_header_window(lines)
     if header is None:
-        # Continuação de matriz: muitas linhas alinhadas, códigos de zona e parâmetros,
-        # mesmo quando o cabeçalho ficou na página anterior.
+        legal_ratio = legal_lines_total / max(len(lines), 1)
         continuation_signal = (
-            multi_column_lines >= 5
-            and zone_code_count >= 1
-            and len(page_urban_hits) >= 2
-            and legal_lines_total / max(len(lines), 1) <= 0.25
+            aligned_value_lines >= 3
+            and zone_code_count >= 2
+            and (len(page_urban_hits) >= 2 or aligned_value_lines >= 4)
+            and legal_ratio <= 0.25
         )
         if continuation_signal:
             return TableAssessment(
                 classification="continuation_candidate",
                 suspected=False,
-                score=6,
+                score=7,
                 row_count=multi_column_lines,
                 stable_columns=0,
-                reasons=["possivel continuacao de matriz urbanistica sem cabecalho local"],
-                legal_list_ratio=round(legal_lines_total / len(lines), 4),
+                reasons=[
+                    "possivel continuacao de matriz urbanistica sem cabecalho local"
+                ],
+                legal_list_ratio=round(legal_ratio, 4),
+                numeric_rows=numeric_aligned_lines,
+                compact_value_rows=aligned_value_lines,
                 multi_column_lines=multi_column_lines,
                 urban_parameter_hits=page_urban_hits,
                 zone_code_count=zone_code_count,
                 content_profile="urban_matrix_continuation",
             )
-        return _empty_assessment("legal_list" if legal_lines_total >= len(lines) * 0.3 else "prose")
+        profile = "legal_list" if legal_lines_total >= len(lines) * 0.3 else "prose"
+        return _empty_assessment(profile)
 
     header_start, header_end, header_hits = header
     title_nearby = any(
-        _is_title_line(lines[index]) for index in range(max(0, header_start - 5), header_start)
+        _is_title_line(lines[index])
+        for index in range(max(0, header_start - 5), header_start)
     )
+    title_in_header = any(_is_title_line(line) for line in lines[header_start:header_end])
+    title_evidence = title_nearby or title_in_header
     header_text = " ".join(lines[header_start:header_end])
     urban_hits = sorted(set(page_urban_hits + _urban_parameter_hits(header_text)))
 
@@ -232,7 +283,7 @@ def assess_table(text: str) -> TableAssessment:
         row_positions.append(starts)
         if numbers >= 1:
             numeric_rows += 1
-        if word_count <= 24 and (numbers >= 2 or _ZONE_CODE_RE.search(_ascii_upper(line))):
+        if _line_has_compact_values(line):
             compact_value_rows += 1
 
     row_count = len(row_positions)
@@ -240,14 +291,16 @@ def assess_table(text: str) -> TableAssessment:
     legal_list_ratio = legal_rows / max(len(data_window), 1)
     prose_ratio = prose_rows / max(len(data_window), 1)
     matrix_vocabulary = len(urban_hits) >= 4 or (
-        "territorial" in header_hits and "uso" in header_hits and len(urban_hits) >= 2
+        "territorial" in header_hits
+        and "uso" in header_hits
+        and len(urban_hits) >= 2
     )
 
     score = 0
     reasons: list[str] = []
-    if title_nearby:
+    if title_evidence:
         score += 3
-        reasons.append("titulo tabular explicito proximo ao cabecalho")
+        reasons.append("titulo tabular explicito associado ao cabecalho")
     if len(header_hits) >= 3:
         score += 3
         reasons.append("grupos semanticos de cabecalho em bloco local")
@@ -268,7 +321,7 @@ def assess_table(text: str) -> TableAssessment:
         reasons.append("linhas compactas tipicas de matriz de parametros")
     if matrix_vocabulary:
         score += 3
-        reasons.append("vocabulário convergente de matriz urbanistica")
+        reasons.append("vocabulario convergente de matriz urbanistica")
     if zone_code_count >= 2:
         score += 2
         reasons.append("codigos de zonas recorrentes")
@@ -286,21 +339,37 @@ def assess_table(text: str) -> TableAssessment:
         and (zone_code_count >= 1 or numeric_rows >= 3)
         and legal_list_ratio <= 0.30
     )
-    candidate = (
-        row_count >= 3
-        and 2 <= stable_columns <= 14
-        and legal_list_ratio <= 0.35
-        and prose_ratio <= 0.35
-        and (title_nearby or numeric_rows >= 2 or strong_urban_matrix)
-        and (len(header_hits) >= 2 or strong_urban_matrix)
-    )
-    confirmed = (
-        candidate
+    structured_listing = (
+        title_evidence
+        and len(header_hits) >= 3
         and row_count >= 4
-        and compact_value_rows >= 3
+        and numeric_rows >= 3
         and legal_list_ratio <= 0.20
         and prose_ratio <= 0.25
-        and (title_nearby or len(header_hits) >= 3 or strong_urban_matrix)
+    )
+    alignment_evidence = (
+        2 <= stable_columns <= 14
+        or strong_urban_matrix
+        or structured_listing
+        or (multi_column_lines >= 5 and zone_code_count >= 2)
+    )
+    candidate = (
+        row_count >= 3
+        and alignment_evidence
+        and legal_list_ratio <= 0.35
+        and prose_ratio <= 0.35
+        and (title_evidence or numeric_rows >= 2 or strong_urban_matrix)
+        and (len(header_hits) >= 2 or strong_urban_matrix)
+    )
+    confirmed = candidate and (
+        structured_listing
+        or (
+            row_count >= 4
+            and compact_value_rows >= 3
+            and legal_list_ratio <= 0.20
+            and prose_ratio <= 0.25
+            and (title_evidence or len(header_hits) >= 3 or strong_urban_matrix)
+        )
     )
 
     page_mixed = candidate and (header_start >= 10 or prose_ratio > 0.20)
@@ -329,7 +398,13 @@ def assess_table(text: str) -> TableAssessment:
         multi_column_lines=multi_column_lines,
         urban_parameter_hits=urban_hits,
         zone_code_count=zone_code_count,
-        content_profile=("mixed_urban_matrix" if page_mixed else "urban_matrix" if matrix_vocabulary else "generic_table"),
+        content_profile=(
+            "mixed_urban_matrix"
+            if page_mixed
+            else "urban_matrix"
+            if matrix_vocabulary
+            else "generic_table"
+        ),
     )
 
 

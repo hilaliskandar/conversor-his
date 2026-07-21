@@ -2,7 +2,7 @@
 
 Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com suporte a OCR seletivo, rastreabilidade e controle de qualidade.
 
-Versão atual: **0.5.1**.
+Versão atual: **0.5.2**.
 
 ## Princípios
 
@@ -27,6 +27,7 @@ Versão atual: **0.5.1**.
 - Tesseract: OCR local seletivo e fornecimento de dados de confiança;
 - Pillow: gravação e tratamento das imagens geradas;
 - Typer e Rich: interface de linha de comando;
+- biblioteca padrão `zipfile`: processamento seguro de lotes municipais compactados;
 - Docling: rota estrutural opcional planejada para reconstrução de layouts e tabelas complexas;
 - PaddleOCR: componente opcional planejado para benchmark e fallback;
 - OCRmyPDF: integração opcional separada.
@@ -48,15 +49,9 @@ Para OCR com Tesseract:
 pip install -e ".[dev,ocr]"
 ```
 
-Para a rota estrutural com Docling e pdfplumber, quando disponibilizada:
-
-```powershell
-pip install -e ".[dev,structured]"
-```
-
 ## Uso inicial
 
-Diagnóstico do documento:
+Diagnóstico de PDF individual:
 
 ```powershell
 conversor-his diagnosticar `
@@ -64,12 +59,42 @@ conversor-his diagnosticar `
   --saida "D:\corpus\processado"
 ```
 
-Conversão:
+Conversão de PDF individual:
 
 ```powershell
 conversor-his converter `
   --entrada "D:\corpus\originais\lei.pdf" `
   --saida "D:\corpus\processado"
+```
+
+Conversão de lote municipal em ZIP:
+
+```powershell
+conversor-his converter-lote `
+  --entrada "D:\corpus\originais\municipio.zip" `
+  --saida "D:\corpus\processado\municipio"
+```
+
+A estrutura de diretórios existente dentro do ZIP é reproduzida sob a pasta de saída. O ZIP original permanece intacto. Arquivos que não sejam PDF são ignorados e registrados na contagem geral. Uma falha em um diploma não interrompe os demais.
+
+Exemplo:
+
+```text
+ZIP:
+municipio/
+  plano_diretor/lei_complementar.pdf
+  uso_ocupacao/lei_urbanistica.pdf
+
+Saída:
+municipio/
+  plano_diretor/
+    lei_complementar.md
+    lei_complementar.manifest.json
+    lei_complementar_assets/
+  uso_ocupacao/
+    lei_urbanistica.md
+    lei_urbanistica.manifest.json
+    lei_urbanistica_assets/
 ```
 
 ## Produtos gerados
@@ -78,14 +103,31 @@ O comando de diagnóstico produz:
 
 - `<documento>.diagnostico.json`: condição das páginas e decisão preliminar de rota.
 
-O comando de conversão pode produzir:
+O comando de conversão produz:
 
 - `<documento>.md`: conteúdo convertido, com rastreabilidade por página;
 - `<documento>.manifest.json`: descrição da operação executada e dos artefatos gerados;
 - `<documento>_assets/`: imagens de mapas, tabelas confirmadas e outros ativos preservados;
 - advertências no Markdown e no manifesto para páginas que exigem revisão.
 
+O comando `converter-lote` também produz:
+
+- `<nome-do-zip>.lote.manifest.json`: inventário geral do lote, com caminho interno de cada PDF, resultado, saída e eventual erro.
+
 ## Histórico de versões
+
+### 0.5.2 — processamento seguro de lotes municipais em ZIP
+
+- acrescenta o comando `converter-lote`;
+- processa recursivamente todos os PDFs contidos no ZIP;
+- preserva a árvore interna de diretórios na pasta de saída;
+- mantém o ZIP de entrada intacto e usa extração temporária por documento;
+- registra no manifesto individual a referência `arquivo.zip!/caminho/interno.pdf`;
+- cria manifesto geral do lote com sucessos, falhas e arquivos ignorados;
+- isola falhas por diploma, permitindo a continuidade do lote;
+- rejeita caminhos absolutos, travessia de diretórios, links simbólicos e duplicidades incompatíveis com sistemas sem diferenciação de maiúsculas;
+- valida a assinatura PDF antes do processamento;
+- mantém inalterada a heurística tabular validada na versão 0.5.1.
 
 ### 0.5.1 — estabilização inicial da detecção tabular
 
@@ -112,45 +154,9 @@ O comando de conversão pode produzir:
 - inclui `table_pages` e `decorative_pages` no manifesto;
 - acrescenta testes de regressão para contracapas, tabelas urbanísticas e listas de coordenadas.
 
-### 0.4.0 — controle de qualidade pós-OCR e manifesto de conversão
-
-- acrescenta métricas pós-OCR por página: quantidade de caracteres, palavras, proporção alfanumérica e confiança média;
-- classifica o resultado OCR como `high`, `medium` ou `low`;
-- registra `requires_review` e as razões da revisão;
-- sinaliza no Markdown resultados OCR que não devem ser tratados como transcrição normativa confiável;
-- cria um manifesto de conversão distinto do diagnóstico;
-- registra hash e tamanho do Markdown, ativos gerados, páginas OCR, páginas cartográficas, páginas para revisão, DPI e versão do conversor;
-- amplia, de forma conservadora, a tolerância geométrica para ocorrências periféricas de um gráfico já confirmado como decorativo;
-- mantém como conteúdo qualquer ocorrência ampliada ou deslocada para o interior da página.
-
-### 0.3.0 — supressão lógica de gráficos repetitivos
-
-- inventaria XObjects gráficos e calcula fingerprints SHA-256;
-- identifica elementos gráficos recorrentes, pequenos, periféricos e geometricamente estáveis;
-- preserva o PDF original e realiza apenas supressão lógica para fins de roteamento;
-- diferencia `raw_image_count`, `decorative_image_count` e `content_image_count`;
-- elimina falsos alertas de página híbrida causados por logomarcas, cabeçalhos e rodapés repetitivos;
-- registra os elementos decorativos identificados no diagnóstico e no manifesto;
-- mantém mapas e outras imagens relevantes fora da supressão decorativa.
-
-### 0.2.2 — correção de empacotamento e estabilidade da instalação
-
-- corrige o arquivo `pyproject.toml` truncado;
-- simplifica a configuração de empacotamento;
-- restabelece a instalação editável e o funcionamento do comando `conversor-his`.
-
-### 0.2.0 — arquitetura permissiva de conversão
-
-- substitui o backend obrigatório PyMuPDF por componentes com licenças permissivas;
-- estabelece `pypdf` como base de leitura, diagnóstico e extração nativa;
-- utiliza `pypdfium2` para renderização;
-- introduz OCR seletivo com Tesseract;
-- estrutura os comandos `diagnosticar` e `converter`;
-- estabelece Markdown, diagnóstico e manifesto como produtos centrais do fluxo.
-
 ## Estado atual
 
-A versão `0.5.1` inicia a estabilização da detecção tabular. A funcionalidade permanece experimental e será mantida na série `0.5.x` enquanto houver falsos positivos relevantes, tabelas evidentes não detectadas ou ausência de validação sobre conjunto rotulado.
+A versão `0.5.2` mantém a estabilização da detecção tabular da série `0.5.x` e acrescenta processamento de lotes municipais em ZIP sem modificar os thresholds já validados.
 
 A promoção para `0.6.0` dependerá de precisão mínima de 0,95, revocação mínima de 0,90, F1 mínima de 0,92 e ausência de regressões nas rotas de mapas, OCR e páginas decorativas.
 

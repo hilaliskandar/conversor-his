@@ -39,7 +39,8 @@ def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
         char_count = len(text.strip())
         suspected_map = is_map_page(text, content_image_count)
         table_assessment = assess_table(text)
-        suspected_table = table_assessment.suspected
+        suspected_table = table_assessment.classification == "confirmed"
+        table_candidate = table_assessment.classification == "candidate"
         has_native = char_count >= min_native_chars
         decorative_only = (
             char_count == 0
@@ -59,7 +60,7 @@ def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
             page_type = "table"
         elif has_native:
             route = "native"
-            page_type = "text"
+            page_type = "table_candidate" if table_candidate else "text"
         else:
             route = "ocr"
             page_type = "unknown"
@@ -71,7 +72,11 @@ def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
             warnings.append("pagina exclusivamente decorativa: OCR dispensado")
         elif suspected_table:
             warnings.append(
-                "estrutura tabular suspeita: preservar imagem e exigir revisao estrutural"
+                "estrutura tabular confirmada: preservar imagem e exigir revisao estrutural"
+            )
+        elif table_candidate:
+            warnings.append(
+                "candidata a tabela: mantida em rota nativa ate confirmacao estrutural"
             )
         elif 0 < char_count < min_native_chars:
             warnings.append("camada textual insuficiente")
@@ -94,7 +99,11 @@ def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
                 page_type=page_type,
                 route=route,
                 warnings=warnings,
-                table_assessment=table_assessment if suspected_table else None,
+                table_assessment=(
+                    table_assessment
+                    if table_assessment.classification != "not_table"
+                    else None
+                ),
             )
         )
 

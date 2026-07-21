@@ -10,6 +10,7 @@ import time
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from . import __version__
@@ -132,12 +133,7 @@ def convert_zip_batch(
     remove_common_root: bool = True,
     progress: Callable[[str], None] | None = None,
 ) -> BatchConversionResult:
-    """Converte PDFs de um ZIP com limite, retomada e manifesto incremental.
-
-    ``document_limit=0`` processa todos os PDFs elegíveis. Valores positivos
-    processam somente os primeiros documentos, em ordem estável pelo caminho
-    interno. O manifesto é atualizado antes e depois de cada documento.
-    """
+    """Converte PDFs de um ZIP com limite, retomada e manifesto incremental."""
 
     if document_limit < 0:
         raise ValueError("document_limit deve ser zero ou positivo")
@@ -154,6 +150,7 @@ def convert_zip_batch(
     existing_entries = _load_existing_entries(batch_manifest_path) if resume else {}
 
     entries: list[dict[str, object]] = []
+    ignored_entries: list[dict[str, str]] = []
     seen_paths: set[str] = set()
     seen_hashes: dict[str, str] = {}
     success_count = 0
@@ -161,38 +158,49 @@ def convert_zip_batch(
     skipped_count = 0
     duplicate_count = 0
     processed_count = 0
-    started = time.perf_counter()
+    started_perf = time.perf_counter()
+    started_at = datetime.now(timezone.utc).isoformat()
 
     def emit(message: str) -> None:
         if progress is not None:
             progress(message)
 
-    def persist(status: str, total_pdf_count: int, pending_count: int) -> None:
-        write_manifest(
-            {
-                "source_zip": zip_path,
-                "source_zip_sha256": source_zip_hash,
-                "output_directory": output_dir,
-                "converter_version": __version__,
-                "dpi": dpi,
-                "document_limit": document_limit,
-                "resume_enabled": resume,
-                "status": status,
-                "pdf_count": total_pdf_count,
-                "processed_count": processed_count,
-                "success_count": success_count,
-                "failure_count": failure_count,
-                "duplicate_count": duplicate_count,
-                "skipped_non_pdf_count": skipped_count,
-                "pending_count": pending_count,
-                "directory_policy": "mirror_zip_structure",
-                "common_root_removed": remove_common_root,
-                "processing_seconds": round(time.perf_counter() - started, 3),
-                "entries": entries,
-            },
-            batch_manifest_path,
-        )
+    def persist(
+        status: str,
+        total_pdf_count: int,
+        pending_count: int,
+        completed: bool = False,
+    ) -> None:
+        payload: dict[str, object] = {
+            "source_zip": zip_path,
+            "source_zip_sha256": source_zip_hash,
+            "output_directory": output_dir,
+            "converter_version": __version__,
+            "dpi": dpi,
+            "document_limit": document_limit,
+            "resume_enabled": resume,
+            "status": status,
+            "started_at": started_at,
+            "pdf_count": total_pdf_count,
+            "processed_count": processed_count,
+            "success_count": success_count,
+            "failure_count": failure_count,
+            "duplicate_count": duplicate_count,
+            "skipped_non_pdf_count": skipped_count,
+            "pending_count": pending_count,
+            "directory_policy": "mirror_zip_structure",
+            "common_root_removed": remove_common_root,
+            "processing_seconds": round(time.perf_counter() - started_perf, 3),
+            "ignored_entries": ignored_entries,
+            "entries": entries,
+            "generated_at": started_at,
+        }
+        if completed:
+            payload["completed_at"] = datetime.now(timezone.utc).isoformat()
+        write_manifest(payload, batch_manifest_path)
 
+    total_pdf_count = 0
+    pending_count = 0
     with tempfile.TemporaryDirectory(prefix="conversor_his_lote_") as temporary_name:
         temporary_root = Path(temporary_name)
 
@@ -211,6 +219,13 @@ def convert_zip_batch(
                     continue
                 if path.suffix.casefold() != ".pdf":
                     skipped_count += 1
+                    ignored_entries.append(
+                        {
+                            "member": path.as_posix(),
+                            "status": "ignored",
+                            "reason": "extensao diferente de PDF",
+                        }
+                    )
                     continue
                 candidates.append((info, path))
 
@@ -245,7 +260,11 @@ def convert_zip_batch(
                 if _is_symlink(info):
                     failure_count += 1
                     entries.append(
-                        {"member": member_name, "status": "rejected", "error": "link simbolico nao permitido no ZIP"}
+                        {
+                            "member": member_name,
+                            "status": "rejected",
+                            "error": "link simbolico nao permitido no ZIP",
+                        }
                     )
                     persist("running", total_pdf_count, pending_count)
                     continue
@@ -316,7 +335,9 @@ def convert_zip_batch(
                             "status": "success",
                             "markdown_path": str(markdown_path),
                             "manifest_path": str(manifest_path),
-                            "processing_seconds": round(time.perf_counter() - document_started, 3),
+                            "processing_seconds": round(
+                                time.perf_counter() - document_started, 3
+                            ),
                         }
                     )
                     success_count += 1
@@ -327,7 +348,7 @@ def convert_zip_batch(
                         entries[-1]["error"] = "processamento interrompido pelo usuario"
                     persist("interrupted", total_pdf_count, pending_count)
                     raise
-                except Exception as exc:  # noqa: BLE001 - falhas devem ser isoladas por diploma
+                except Exception as exc:  # noqa: BLE001
                     failure_count += 1
                     processed_count += 1
                     if entries and entries[-1].get("status") == "processing":
@@ -348,8 +369,13 @@ def convert_zip_batch(
                     )
                 persist("running", total_pdf_count, pending_count)
 
-    final_status = "completed_with_failures" if failure_count else "completed"
-    persist(final_status, total_pdf_count, pending_count)
+    if failure_count:
+        final_status = "completed_with_failures"
+    elif pending_count:
+        final_status = "completed_with_limit"
+    else:
+        final_status = "completed"
+    persist(final_status, total_pdf_count, pending_count, completed=True)
 
     return BatchConversionResult(
         manifest_path=batch_manifest_path,

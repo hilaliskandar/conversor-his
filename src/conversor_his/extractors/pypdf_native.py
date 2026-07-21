@@ -10,6 +10,12 @@ from typing import Any
 
 from pypdf import PdfReader
 
+from ..text_normalization import (
+    clean_invisible_characters,
+    has_excessive_layout_spacing,
+    normalize_prose_text,
+)
+
 _LEGAL_MARKER_RE = re.compile(
     r"\b(?:ART\.?|ARTIGO|PAR[AÁ]GRAFO|INCISO|LEI|DECRETO|RESOLU[CÇ][AÃ]O)\b",
     re.IGNORECASE,
@@ -36,14 +42,18 @@ class _MessageHandler(logging.Handler):
 
 
 def _text_score(text: str) -> float:
-    normalized = text.strip()
+    normalized = clean_invisible_characters(text).strip()
     if not normalized:
         return 0.0
     alphanumeric = sum(char.isalnum() for char in normalized)
     words = len(normalized.split())
     legal_markers = len(_LEGAL_MARKER_RE.findall(normalized))
     replacement_penalty = normalized.count("\ufffd") * 8
-    return max(0.0, alphanumeric + words * 0.5 + legal_markers * 12 - replacement_penalty)
+    spacing_penalty = max(len(normalized) - len(normalize_prose_text(normalized)), 0) * 0.35
+    return max(
+        0.0,
+        alphanumeric + words * 0.5 + legal_markers * 12 - replacement_penalty - spacing_penalty,
+    )
 
 
 def _extract_layout_with_messages(page: Any) -> tuple[str, list[str]]:
@@ -63,7 +73,7 @@ def _extract_layout_with_messages(page: Any) -> tuple[str, list[str]]:
             )
         captured.extend(str(item.message) for item in caught)
         captured.extend(handler.messages)
-        return (text or "").strip(), captured
+        return clean_invisible_characters(text or "").strip(), captured
     finally:
         logger.removeHandler(handler)
         logger.propagate = previous_propagate
@@ -72,9 +82,9 @@ def _extract_layout_with_messages(page: Any) -> tuple[str, list[str]]:
 def extract_page_text_detailed(page: Any) -> NativeTextExtraction:
     """Extrai texto e registra limitações da camada textual da página.
 
-    O modo ``layout`` é preferido. Quando o pypdf sinaliza texto rotacionado,
-    quando a saída fica vazia ou muito curta, a extração simples também é
-    executada e as duas alternativas são comparadas por completude textual.
+    O modo ``layout`` é comparado ao modo simples quando há rotação, pouco texto
+    ou espaçamento posicional excessivo. A saída selecionada é normalizada para
+    pesquisa, mantendo os textos tabulares brutos em etapa posterior.
     """
 
     layout_text = ""
@@ -85,11 +95,12 @@ def extract_page_text_detailed(page: Any) -> NativeTextExtraction:
         messages.append(f"layout_extraction_failed: {type(exc).__name__}: {exc}")
 
     rotated_text = any("rotated text" in message.casefold() for message in messages)
-    should_try_simple = rotated_text or len(layout_text) < 40
+    excessive_spacing = has_excessive_layout_spacing(layout_text)
+    should_try_simple = rotated_text or len(layout_text) < 40 or excessive_spacing
     simple_text = ""
     if should_try_simple:
         try:
-            simple_text = (page.extract_text() or "").strip()
+            simple_text = clean_invisible_characters(page.extract_text() or "").strip()
         except (TypeError, ValueError, KeyError) as exc:
             messages.append(f"simple_extraction_failed: {type(exc).__name__}: {exc}")
 
@@ -100,15 +111,24 @@ def extract_page_text_detailed(page: Any) -> NativeTextExtraction:
 
     if simple_text and (
         not layout_text
-        or simple_score > layout_score * 1.15
+        or simple_score > layout_score * 1.05
         or (rotated_text and simple_score >= layout_score * 0.95)
+        or (excessive_spacing and simple_score >= layout_score * 0.85)
     ):
         selected_mode = "simple"
         selected_text = simple_text
+    elif excessive_spacing:
+        selected_mode = "layout_normalized"
+        selected_text = normalize_prose_text(layout_text)
 
-    normalized_messages = list(dict.fromkeys(message.strip() for message in messages if message.strip()))
+    if excessive_spacing:
+        messages.append("layout_spacing_excessive: compared_with_simple_extraction")
+
+    normalized_messages = list(
+        dict.fromkeys(message.strip() for message in messages if message.strip())
+    )
     return NativeTextExtraction(
-        text=selected_text,
+        text=normalize_prose_text(selected_text),
         selected_mode=selected_mode,
         layout_character_count=len(layout_text),
         simple_character_count=len(simple_text),
@@ -122,7 +142,7 @@ def extract_page_text(page: Any, preserve_layout: bool = True) -> str:
 
     if preserve_layout:
         return extract_page_text_detailed(page).text
-    return (page.extract_text() or "").strip()
+    return normalize_prose_text(page.extract_text() or "")
 
 
 def _resolve_pdf_object(value: Any) -> Any:

@@ -122,7 +122,7 @@ def extract_page_text_detailed(page: Any) -> NativeTextExtraction:
     )
     return NativeTextExtraction(
         text=normalize_prose_text(selected_raw_text),
-        raw_text=selected_raw_text,
+        raw_text=layout_text or selected_raw_text,
         selected_mode=selected_mode,
         layout_character_count=len(layout_text),
         simple_character_count=len(simple_text),

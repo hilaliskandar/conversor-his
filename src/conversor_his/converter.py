@@ -3,10 +3,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import __version__
 from .diagnostic import diagnose_pdf
 from .extractors.pypdf_native import extract_native_pages
+from .hashing import sha256_file
 from .manifest import write_manifest
 from .maps import extract_map_title, is_map_page, save_map_image
+from .models import ConversionManifest
+from .ocr.quality import assess_ocr_quality
 from .ocr.tesseract_engine import TesseractEngine
 
 
@@ -20,6 +24,20 @@ def _map_chunk(page_number: int, title: str, relative_image: str) -> str:
     )
 
 
+def _ocr_chunk(page_number: int, text: str, requires_review: bool) -> str:
+    notice = ""
+    if requires_review:
+        notice = (
+            "> **Revisão necessária:** o resultado do OCR apresentou baixa ou moderada "
+            "qualidade e não deve ser tratado como transcrição normativa confiável.\n\n"
+        )
+    return (
+        f"<!-- pagina_original: {page_number}; rota: ocr:tesseract+pdfium; "
+        f"revisao: {'sim' if requires_review else 'nao'} -->\n\n"
+        f"## Página {page_number}\n\n{notice}{text}\n"
+    )
+
+
 def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     diagnosis = diagnose_pdf(path)
@@ -27,6 +45,10 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
     ocr = TesseractEngine()
     chunks: list[str] = []
     assets_dir = output_dir / f"{path.stem}_assets"
+    asset_paths: list[Path] = []
+    used_ocr_pages: list[int] = []
+    map_pages: list[int] = []
+    review_pages: list[int] = []
 
     for page in diagnosis.pages:
         native_text = native[page.page_number]
@@ -39,12 +61,22 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
                 assets_dir,
                 dpi=min(dpi, 300),
             )
+            asset_paths.append(image_path)
+            map_pages.append(page.page_number)
             relative_image = image_path.relative_to(output_dir).as_posix()
             chunks.append(_map_chunk(page.page_number, title, relative_image))
             continue
 
         if page.route == "ocr":
-            text = ocr.recognize_page(path, page.page_number, dpi=dpi)
+            used_ocr_pages.append(page.page_number)
+            text, confidences = ocr.recognize_page_with_confidence(
+                path,
+                page.page_number,
+                dpi=dpi,
+            )
+            quality = assess_ocr_quality(text, confidences)
+            page.ocr_quality = quality
+
             if is_map_page(text, max(page.image_count, 1)):
                 page.suspected_map = True
                 page.route = "map"
@@ -58,21 +90,43 @@ def convert_pdf(path: Path, output_dir: Path, dpi: int = 300) -> Path:
                     assets_dir,
                     dpi=min(dpi, 300),
                 )
+                asset_paths.append(image_path)
+                map_pages.append(page.page_number)
                 relative_image = image_path.relative_to(output_dir).as_posix()
                 chunks.append(_map_chunk(page.page_number, title, relative_image))
                 continue
-            route = "ocr:tesseract+pdfium"
-        else:
-            text = native_text
-            route = "native:pypdf"
+
+            if quality.requires_review:
+                review_pages.append(page.page_number)
+                page.warnings.append(
+                    "resultado OCR requer revisao: " + "; ".join(quality.reasons)
+                )
+            chunks.append(_ocr_chunk(page.page_number, text, quality.requires_review))
+            continue
 
         chunks.append(
-            f"<!-- pagina_original: {page.page_number}; rota: {route} -->\n\n"
-            f"## Página {page.page_number}\n\n{text}\n"
+            f"<!-- pagina_original: {page.page_number}; rota: native:pypdf -->\n\n"
+            f"## Página {page.page_number}\n\n{native_text}\n"
         )
 
     markdown_path = output_dir / f"{path.stem}.md"
     manifest_path = output_dir / f"{path.stem}.manifest.json"
     markdown_path.write_text("\n\n".join(chunks), encoding="utf-8")
-    write_manifest(diagnosis, manifest_path)
+
+    conversion_manifest = ConversionManifest(
+        source_path=path,
+        source_sha256=diagnosis.sha256,
+        page_count=diagnosis.page_count,
+        markdown_path=markdown_path,
+        markdown_sha256=sha256_file(markdown_path),
+        markdown_size_bytes=markdown_path.stat().st_size,
+        asset_paths=asset_paths,
+        used_ocr_pages=used_ocr_pages,
+        map_pages=map_pages,
+        review_pages=review_pages,
+        dpi=dpi,
+        converter_version=__version__,
+        diagnosis=diagnosis,
+    )
+    write_manifest(conversion_manifest, manifest_path)
     return markdown_path

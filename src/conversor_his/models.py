@@ -80,6 +80,12 @@ class PageDiagnosis:
     warnings: list[str] = field(default_factory=list)
     ocr_quality: OcrQuality | None = None
     table_assessment: TableAssessment | None = None
+    native_extraction_mode: str = "layout"
+    layout_character_count: int = 0
+    simple_character_count: int = 0
+    rotated_text_detected: bool = False
+    extraction_warnings: list[str] = field(default_factory=list)
+    preserved_visual_text: bool = False
 
 
 @dataclass(slots=True)
@@ -109,6 +115,9 @@ class ConversionManifest:
     dpi: int
     converter_version: str
     diagnosis: DocumentDiagnosis
+    rotated_text_pages: list[int] = field(default_factory=list)
+    visual_text_preserved_pages: list[int] = field(default_factory=list)
+    processing_seconds: float | None = None
 
 
 @dataclass(slots=True)

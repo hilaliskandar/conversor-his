@@ -12,15 +12,16 @@ Ferramenta para diagnosticar, converter e validar diplomas legais municipais em 
 - prevê medição de CER, WER, fidelidade estrutural e correspondência de elementos críticos;
 - bloqueia a entrada no corpus quando os thresholds não são atingidos.
 
-## Arquitetura inicial
+## Arquitetura da versão 0.2
 
-- `diagnosticar`: classifica documentos e páginas;
-- `converter`: executa extração direta ou OCR seletivo;
-- `validar`: calculará métricas e aplicará thresholds;
-- `benchmark-ocr`: comparará motores e configurações;
-- `relatar`: consolidará resultados e trilha de auditoria.
+- `pypdf`: leitura, diagnóstico e extração nativa;
+- `pypdfium2`: renderização de páginas para OCR e inspeção;
+- Tesseract: OCR local seletivo;
+- Docling: rota estrutural opcional para layouts e tabelas complexas;
+- PaddleOCR: extra opcional para benchmark e fallback;
+- OCRmyPDF: integração opcional separada.
 
-Os comandos indicados no futuro estão registrados no roadmap e ainda não fazem parte da versão `0.1.0`.
+O núcleo não depende de PyMuPDF nem de Ghostscript.
 
 ## Instalação
 
@@ -28,29 +29,28 @@ Os comandos indicados no futuro estão registrados no roadmap e ainda não fazem
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
+pip install -e ".[dev]"
+```
+
+Para OCR com Tesseract:
+
+```powershell
 pip install -e ".[dev,ocr]"
 ```
 
-Dependências externas recomendadas no Windows:
+Para a rota estrutural com Docling e pdfplumber:
 
-- Tesseract OCR com idioma `por`;
-- pypdfium2 para renderização, conforme a rota escolhida;
-- OCRmyPDF, a ser integrado em etapa posterior;
-- PaddleOCR, opcional para benchmark e fallback.
-
-Ghostscript não integra a distribuição oficial recomendada. Seu uso, quando presente no ambiente, depende de avaliação específica de licença.
+```powershell
+pip install -e ".[dev,structured]"
+```
 
 ## Uso inicial
-
-Diagnóstico de um PDF:
 
 ```powershell
 conversor-his diagnosticar `
   --entrada "D:\corpus\originais\lei.pdf" `
   --saida "D:\corpus\processado"
 ```
-
-Conversão de um PDF:
 
 ```powershell
 conversor-his converter `
@@ -60,22 +60,18 @@ conversor-his converter `
 
 ## Estado
 
-Versão inicial de arquitetura. Os módulos estão preparados para evolução incremental, comparação de motores de OCR e testes automatizados.
-
-A implementação inicial ainda utiliza PyMuPDF. Essa dependência será substituída por uma rota permissiva somente após benchmark no corpus legislativo, para preservar a qualidade de extração, estrutura e rastreabilidade.
+A versão `0.2.0` substitui o backend obrigatório PyMuPDF por componentes permissivos. A qualidade em layouts complexos e tabelas continuará sendo medida pelo benchmark do corpus legislativo.
 
 ## Licenciamento
 
-O projeto adota licenciamento por camadas:
-
 - código-fonte, testes, scripts e automações próprios: **MIT License**;
-- documentação, metodologia, diagramas e materiais formativos produzidos pelo projeto: **CC BY 4.0**;
+- documentação, metodologia, diagramas e materiais formativos: **CC BY 4.0**;
 - dados sintéticos expressamente identificados: **CC0 1.0**;
 - dependências, modelos e pesos: licença própria de cada componente;
-- legislação municipal, documentos recebidos e demais conteúdos de terceiros: não são relicenciados pelo projeto.
+- legislação municipal e conteúdos de terceiros: não são relicenciados.
 
-Consulte [`LICENSING.md`](LICENSING.md) para a delimitação completa e [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) para os avisos de componentes externos.
+Consulte `LICENSING.md` e `THIRD_PARTY_NOTICES.md`.
 
 ## Segurança documental
 
-O repositório não deve armazenar corpus municipais, modelos de OCR, arquivos convertidos nem dados de trabalho. Esses artefatos são excluídos por `.gitignore` e devem permanecer em armazenamento controlado.
+O repositório não deve armazenar corpus municipais, modelos de OCR, arquivos convertidos nem dados de trabalho. Esses artefatos devem permanecer em armazenamento controlado.

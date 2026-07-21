@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-PageRoute = Literal["native", "ocr", "hybrid", "manual"]
+PageRoute = Literal["native", "ocr", "map", "hybrid", "manual"]
 
 
 @dataclass(slots=True)

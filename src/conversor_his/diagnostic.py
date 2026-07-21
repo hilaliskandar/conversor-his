@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .extractors.pypdf_native import count_page_images, extract_page_text, open_pdf
+from .extractors.pypdf_native import (
+    count_page_images,
+    extract_page_text_detailed,
+    open_pdf,
+)
 from .graphics import analyze_repeated_graphics
 from .graphics_policy import refine_confirmed_decorative_graphics
 from .hashing import sha256_file
@@ -24,7 +28,8 @@ def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
     page_count = len(reader.pages)
 
     for index, page in enumerate(reader.pages, start=1):
-        text = extract_page_text(page)
+        extraction = extract_page_text_detailed(page)
+        text = extraction.text
         fallback_image_count = count_page_images(page)
         graphics = graphic_summaries.get(index)
         raw_image_count = (
@@ -65,25 +70,31 @@ def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
             route = "ocr"
             page_type = "unknown"
 
-        warnings: list[str] = []
+        page_warnings: list[str] = []
         if suspected_map:
-            warnings.append("conteudo cartografico: preservar como imagem")
+            page_warnings.append("conteudo visual possivelmente cartografico: preservar imagem e texto")
         elif decorative_only:
-            warnings.append("pagina exclusivamente decorativa: OCR dispensado")
+            page_warnings.append("pagina exclusivamente decorativa: OCR dispensado")
         elif suspected_table:
-            warnings.append(
+            page_warnings.append(
                 "estrutura tabular confirmada: preservar imagem e exigir revisao estrutural"
             )
         elif table_candidate:
-            warnings.append(
-                "candidata a tabela: mantida em rota nativa ate confirmacao estrutural"
+            page_warnings.append(
+                "candidata a tabela: preservar texto e imagem para revisao estrutural"
             )
         elif 0 < char_count < min_native_chars:
-            warnings.append("camada textual insuficiente")
+            page_warnings.append("camada textual insuficiente")
         if content_image_count and has_native and not suspected_map:
-            warnings.append("pagina hibrida: texto e imagem relevante")
+            page_warnings.append("pagina hibrida: texto e imagem relevante")
         if not char_count and not raw_image_count:
-            warnings.append("pagina sem texto ou imagem detectavel")
+            page_warnings.append("pagina sem texto ou imagem detectavel")
+        if extraction.rotated_text:
+            page_warnings.append(
+                f"texto rotacionado detectado; extracao selecionada: {extraction.selected_mode}"
+            )
+        if extraction.warnings:
+            page_warnings.append("avisos da extracao nativa registrados")
 
         pages.append(
             PageDiagnosis(
@@ -98,12 +109,17 @@ def diagnose_pdf(path: Path, min_native_chars: int = 40) -> DocumentDiagnosis:
                 suspected_map=suspected_map,
                 page_type=page_type,
                 route=route,
-                warnings=warnings,
+                warnings=page_warnings,
                 table_assessment=(
                     table_assessment
                     if table_assessment.classification != "not_table"
                     else None
                 ),
+                native_extraction_mode=extraction.selected_mode,
+                layout_character_count=extraction.layout_character_count,
+                simple_character_count=extraction.simple_character_count,
+                rotated_text_detected=extraction.rotated_text,
+                extraction_warnings=extraction.warnings,
             )
         )
 

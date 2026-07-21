@@ -16,6 +16,8 @@ from .ocr.tesseract_engine import TesseractEngine
 from .tables import extract_table_title, save_table_image
 from .text_normalization import clean_invisible_characters, normalize_prose_text
 
+_TABLE_IMAGE_DPI = 200
+
 
 def _markdown_image(alt_text: str, relative_image: str) -> str:
     safe_alt = alt_text.replace("[", "(").replace("]", ")")
@@ -108,10 +110,10 @@ def convert_pdf(
 ) -> Path:
     started = time.perf_counter()
     output_dir.mkdir(parents=True, exist_ok=True)
-    diagnosis = diagnose_pdf(path)
+    native = extract_native_pages_detailed(path)
+    diagnosis = diagnose_pdf(path, native_extractions=native)
     source_path: Path | str = source_reference or path
     diagnosis.source_path = source_path
-    native = extract_native_pages_detailed(path)
     ocr = TesseractEngine()
     chunks: list[str] = []
     assets_dir = output_dir / f"{path.stem}_assets"
@@ -142,7 +144,10 @@ def convert_pdf(
         if page.page_type == "table_candidate":
             table_candidate_pages.append(page.page_number)
             image_path = save_table_image(
-                path, page.page_number, assets_dir, dpi=min(dpi, 300)
+                path,
+                page.page_number,
+                assets_dir,
+                dpi=min(dpi, _TABLE_IMAGE_DPI),
             )
             asset_paths.append(image_path)
             review_pages.append(page.page_number)
@@ -188,7 +193,10 @@ def convert_pdf(
         if page.route == "structured":
             title = extract_table_title(raw_native_text, page.page_number)
             image_path = save_table_image(
-                path, page.page_number, assets_dir, dpi=min(dpi, 300)
+                path,
+                page.page_number,
+                assets_dir,
+                dpi=min(dpi, _TABLE_IMAGE_DPI),
             )
             asset_paths.append(image_path)
             table_pages.append(page.page_number)

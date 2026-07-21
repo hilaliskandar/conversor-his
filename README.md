@@ -2,7 +2,7 @@
 
 Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com suporte a OCR seletivo, rastreabilidade e controle de qualidade.
 
-Versão atual: **0.5.0**.
+Versão atual: **0.5.1**.
 
 ## Princípios
 
@@ -11,7 +11,8 @@ Versão atual: **0.5.0**.
 - diagnostica cada página antes de escolher a rota de conversão;
 - aplica extração nativa quando possível e OCR quando necessário;
 - preserva mapas como imagens vinculadas ao Markdown;
-- preserva páginas tabulares como texto linear e imagem para revisão estrutural;
+- preserva páginas tabulares confirmadas como texto linear e imagem para revisão estrutural;
+- mantém candidatas a tabela na rota nativa até confirmação;
 - distingue imagens de conteúdo de elementos gráficos decorativos recorrentes;
 - evita OCR em páginas exclusivamente decorativas;
 - registra as decisões de conversão em diagnóstico e manifesto auditáveis;
@@ -81,22 +82,34 @@ O comando de conversão pode produzir:
 
 - `<documento>.md`: conteúdo convertido, com rastreabilidade por página;
 - `<documento>.manifest.json`: descrição da operação executada e dos artefatos gerados;
-- `<documento>_assets/`: imagens de mapas, tabelas e outros ativos preservados;
+- `<documento>_assets/`: imagens de mapas, tabelas confirmadas e outros ativos preservados;
 - advertências no Markdown e no manifesto para páginas que exigem revisão.
 
 ## Histórico de versões
 
-### 0.5.0 — páginas decorativas e detecção conservadora de tabelas
+### 0.5.1 — estabilização inicial da detecção tabular
+
+- introduz os estados `not_table`, `candidate` e `confirmed`;
+- mantém candidatas a tabela na rota nativa, sem gerar imagem nem revisão automática;
+- altera a rota para `structured` somente quando a tabela é confirmada;
+- restringe títulos tabulares e exclui artigos, parágrafos, incisos e alíneas;
+- procura cabeçalhos em blocos locais de uma ou duas linhas, em vez de toda a página;
+- exige pelo menos três grupos semânticos de cabeçalho;
+- valida linhas de dados subsequentes e limita o número plausível de colunas recorrentes;
+- penaliza padrões jurídicos enumerativos e listas terminadas em ponto e vírgula;
+- registra `table_candidate_pages` separadamente no manifesto;
+- acrescenta testes para a tabela de ZEIS, tabela de parâmetros, listas jurídicas e memoriais de coordenadas;
+- mantém a funcionalidade na série `0.5.x` até que precisão, revocação e F1 atinjam os critérios de estabilização.
+
+### 0.5.0 — páginas decorativas e detecção experimental de tabelas
 
 - cria as rotas `decorative` e `structured`;
 - classifica páginas sem texto, compostas exclusivamente por gráficos recorrentes já confirmados, como `decorative_only` ou `back_cover`;
 - dispensa OCR nessas páginas e preserva referência explícita ao PDF original;
-- introduz detecção de tabelas baseada em evidência semântica e alinhamento recorrente de colunas;
-- evita usar apenas espaços ou densidade numérica, reduzindo falsos positivos em memoriais de coordenadas;
+- introduz detecção experimental de tabelas baseada em evidência semântica e alinhamento recorrente de colunas;
 - registra pontuação, cabeçalhos identificados, linhas candidatas, colunas estáveis e razões da classificação;
 - preserva páginas tabulares como imagem integral e texto linear bruto;
 - inclui `table_pages` e `decorative_pages` no manifesto;
-- envia páginas tabulares automaticamente para revisão estrutural;
 - acrescenta testes de regressão para contracapas, tabelas urbanísticas e listas de coordenadas.
 
 ### 0.4.0 — controle de qualidade pós-OCR e manifesto de conversão
@@ -137,9 +150,9 @@ O comando de conversão pode produzir:
 
 ## Estado atual
 
-A versão `0.5.0` consolida as rotas de extração nativa, OCR seletivo, preservação cartográfica, preservação tabular, supressão lógica de elementos gráficos repetitivos e classificação de páginas exclusivamente decorativas.
+A versão `0.5.1` inicia a estabilização da detecção tabular. A funcionalidade permanece experimental e será mantida na série `0.5.x` enquanto houver falsos positivos relevantes, tabelas evidentes não detectadas ou ausência de validação sobre conjunto rotulado.
 
-A reconstrução automática de tabelas, a segmentação jurídica e a normalização textual continuarão sendo medidas e aprimoradas por meio do benchmark do corpus legislativo.
+A promoção para `0.6.0` dependerá de precisão mínima de 0,95, revocação mínima de 0,90, F1 mínima de 0,92 e ausência de regressões nas rotas de mapas, OCR e páginas decorativas.
 
 ## Licenciamento
 

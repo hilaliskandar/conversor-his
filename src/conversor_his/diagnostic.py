@@ -15,11 +15,13 @@ from .hashing import sha256_file
 from .maps import is_map_page
 from .models import DocumentDiagnosis, PageDiagnosis
 from .tables import assess_table
+from .visual_tables import assess_vector_grid, merge_visual_table_evidence
 
 _TABLE_CANDIDATE_CLASSES = {
     "candidate",
     "mixed_candidate",
     "continuation_candidate",
+    "visual_candidate",
 }
 
 
@@ -48,12 +50,24 @@ def diagnose_pdf(
         raw_text = extraction.raw_text
         fallback_image_count = count_page_images(page)
         graphics = graphic_summaries.get(index)
-        raw_image_count = graphics.raw_image_count if graphics is not None else fallback_image_count
-        decorative_image_count = graphics.decorative_image_count if graphics is not None else 0
-        content_image_count = graphics.content_image_count if graphics is not None else fallback_image_count
+        raw_image_count = (
+            graphics.raw_image_count if graphics is not None else fallback_image_count
+        )
+        decorative_image_count = (
+            graphics.decorative_image_count if graphics is not None else 0
+        )
+        content_image_count = (
+            graphics.content_image_count if graphics is not None else fallback_image_count
+        )
         char_count = len(text.strip())
         suspected_map = is_map_page(text, content_image_count)
         table_assessment = assess_table(raw_text)
+        vector_evidence = assess_vector_grid(page)
+        table_assessment = merge_visual_table_evidence(
+            table_assessment,
+            vector_evidence,
+            raw_text,
+        )
         suspected_table = table_assessment.classification == "confirmed"
         table_candidate = table_assessment.classification in _TABLE_CANDIDATE_CLASSES
         has_native = char_count >= min_native_chars
@@ -82,7 +96,9 @@ def diagnose_pdf(
 
         page_warnings: list[str] = []
         if suspected_map:
-            page_warnings.append("conteudo visual possivelmente cartografico: preservar imagem e texto")
+            page_warnings.append(
+                "conteudo visual possivelmente cartografico: preservar imagem e texto"
+            )
         elif decorative_only:
             page_warnings.append("pagina exclusivamente decorativa: OCR dispensado")
         elif suspected_table:
@@ -96,6 +112,10 @@ def diagnose_pdf(
             )
         elif 0 < char_count < min_native_chars:
             page_warnings.append("camada textual insuficiente")
+        if vector_evidence.detected:
+            page_warnings.append(
+                "grade vetorial detectada: bordas tabulares preservadas como evidencia"
+            )
         if content_image_count and has_native and not suspected_map:
             page_warnings.append("pagina hibrida: texto e imagem relevante")
         if not char_count and not raw_image_count:

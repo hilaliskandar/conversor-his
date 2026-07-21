@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import stat
 import tempfile
+import time
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -24,6 +27,8 @@ class BatchConversionResult:
     success_count: int
     failure_count: int
     skipped_count: int
+    duplicate_count: int = 0
+    pending_count: int = 0
 
 
 def _safe_member_path(member_name: str) -> PurePosixPath:
@@ -68,13 +73,74 @@ def _extract_pdf_member(
     return temporary_path
 
 
-def convert_zip_batch(zip_path: Path, output_dir: Path, dpi: int = 300) -> BatchConversionResult:
-    """Converte recursivamente PDFs de um ZIP, preservando sua arvore de diretorios.
+def _common_root(paths: list[PurePosixPath]) -> str | None:
+    if not paths:
+        return None
+    first_parts = {path.parts[0].casefold() for path in paths if len(path.parts) > 1}
+    if len(first_parts) != 1 or any(len(path.parts) == 1 for path in paths):
+        return None
+    return paths[0].parts[0]
 
-    O ZIP original nao e alterado. Apenas membros PDF sao extraidos temporariamente,
-    um por vez, e os produtos sao gravados na pasta de saida com o mesmo caminho
-    relativo existente no arquivo compactado.
+
+def _strip_root(path: PurePosixPath, root: str | None) -> PurePosixPath:
+    if root and path.parts and path.parts[0].casefold() == root.casefold():
+        return PurePosixPath(*path.parts[1:])
+    return path
+
+
+def _load_existing_entries(manifest_path: Path) -> dict[str, dict[str, object]]:
+    if not manifest_path.exists():
+        return {}
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    entries = data.get("entries", [])
+    if not isinstance(entries, list):
+        return {}
+    return {
+        str(entry.get("member")): entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("member")
+    }
+
+
+def _is_completed_entry(
+    entry: dict[str, object] | None,
+    source_hash: str,
+    dpi: int,
+) -> bool:
+    if not entry or entry.get("status") not in {"success", "duplicate"}:
+        return False
+    if entry.get("source_sha256") != source_hash:
+        return False
+    if entry.get("dpi") != dpi or entry.get("converter_version") != __version__:
+        return False
+    if entry.get("status") == "duplicate":
+        return True
+    markdown_path = Path(str(entry.get("markdown_path", "")))
+    manifest_path = Path(str(entry.get("manifest_path", "")))
+    return markdown_path.exists() and manifest_path.exists()
+
+
+def convert_zip_batch(
+    zip_path: Path,
+    output_dir: Path,
+    dpi: int = 300,
+    document_limit: int = 0,
+    resume: bool = False,
+    remove_common_root: bool = True,
+    progress: Callable[[str], None] | None = None,
+) -> BatchConversionResult:
+    """Converte PDFs de um ZIP com limite, retomada e manifesto incremental.
+
+    ``document_limit=0`` processa todos os PDFs elegíveis. Valores positivos
+    processam somente os primeiros documentos, em ordem estável pelo caminho
+    interno. O manifesto é atualizado antes e depois de cada documento.
     """
+
+    if document_limit < 0:
+        raise ValueError("document_limit deve ser zero ou positivo")
 
     zip_path = zip_path.resolve()
     output_dir = output_dir.resolve()
@@ -83,73 +149,161 @@ def convert_zip_batch(zip_path: Path, output_dir: Path, dpi: int = 300) -> Batch
     if not zipfile.is_zipfile(zip_path):
         raise ValueError(f"arquivo de entrada nao e um ZIP valido: {zip_path}")
 
+    batch_manifest_path = output_dir / f"{zip_path.stem}.lote.manifest.json"
+    source_zip_hash = sha256_file(zip_path)
+    existing_entries = _load_existing_entries(batch_manifest_path) if resume else {}
+
     entries: list[dict[str, object]] = []
     seen_paths: set[str] = set()
-    pdf_count = 0
+    seen_hashes: dict[str, str] = {}
     success_count = 0
     failure_count = 0
     skipped_count = 0
+    duplicate_count = 0
+    processed_count = 0
+    started = time.perf_counter()
+
+    def emit(message: str) -> None:
+        if progress is not None:
+            progress(message)
+
+    def persist(status: str, total_pdf_count: int, pending_count: int) -> None:
+        write_manifest(
+            {
+                "source_zip": zip_path,
+                "source_zip_sha256": source_zip_hash,
+                "output_directory": output_dir,
+                "converter_version": __version__,
+                "dpi": dpi,
+                "document_limit": document_limit,
+                "resume_enabled": resume,
+                "status": status,
+                "pdf_count": total_pdf_count,
+                "processed_count": processed_count,
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "duplicate_count": duplicate_count,
+                "skipped_non_pdf_count": skipped_count,
+                "pending_count": pending_count,
+                "directory_policy": "mirror_zip_structure",
+                "common_root_removed": remove_common_root,
+                "processing_seconds": round(time.perf_counter() - started, 3),
+                "entries": entries,
+            },
+            batch_manifest_path,
+        )
 
     with tempfile.TemporaryDirectory(prefix="conversor_his_lote_") as temporary_name:
         temporary_root = Path(temporary_name)
 
         with zipfile.ZipFile(zip_path, "r") as archive:
+            candidates: list[tuple[zipfile.ZipInfo, PurePosixPath]] = []
             for info in archive.infolist():
                 if info.is_dir():
                     continue
-
                 try:
-                    relative_path = _safe_member_path(info.filename)
+                    path = _safe_member_path(info.filename)
                 except ValueError as exc:
                     failure_count += 1
                     entries.append(
-                        {
-                            "member": info.filename,
-                            "status": "rejected",
-                            "error": str(exc),
-                        }
+                        {"member": info.filename, "status": "rejected", "error": str(exc)}
                     )
                     continue
-
-                if relative_path.suffix.casefold() != ".pdf":
+                if path.suffix.casefold() != ".pdf":
                     skipped_count += 1
                     continue
+                candidates.append((info, path))
 
-                pdf_count += 1
+            candidates.sort(key=lambda item: item[1].as_posix().casefold())
+            total_pdf_count = len(candidates)
+            root = _common_root([path for _, path in candidates]) if remove_common_root else None
+            selected_candidates = (
+                candidates if document_limit == 0 else candidates[:document_limit]
+            )
+            pending_count = total_pdf_count - len(selected_candidates)
+            persist("running", total_pdf_count, pending_count)
+
+            for position, (info, original_path) in enumerate(selected_candidates, start=1):
+                relative_path = _strip_root(original_path, root)
+                member_name = original_path.as_posix()
                 collision_key = relative_path.as_posix().casefold()
+
                 if collision_key in seen_paths:
                     failure_count += 1
                     entries.append(
                         {
-                            "member": relative_path.as_posix(),
+                            "member": member_name,
+                            "output_relative_path": relative_path.as_posix(),
                             "status": "failed",
                             "error": "caminho PDF duplicado no ZIP",
                         }
                     )
+                    persist("running", total_pdf_count, pending_count)
                     continue
                 seen_paths.add(collision_key)
 
                 if _is_symlink(info):
                     failure_count += 1
                     entries.append(
-                        {
-                            "member": relative_path.as_posix(),
-                            "status": "rejected",
-                            "error": "link simbolico nao permitido no ZIP",
-                        }
+                        {"member": member_name, "status": "rejected", "error": "link simbolico nao permitido no ZIP"}
                     )
+                    persist("running", total_pdf_count, pending_count)
                     continue
 
                 destination_dir = output_dir.joinpath(*relative_path.parent.parts)
-                source_reference = f"{zip_path}!/{relative_path.as_posix()}"
+                source_reference = f"{zip_path}!/{member_name}"
+                emit(f"[{position}/{len(selected_candidates)}] {member_name}")
 
                 try:
                     temporary_pdf = _extract_pdf_member(
-                        archive,
-                        info,
-                        relative_path,
-                        temporary_root,
+                        archive, info, original_path, temporary_root
                     )
+                    source_hash = sha256_file(temporary_pdf)
+                    existing = existing_entries.get(member_name)
+                    if resume and _is_completed_entry(existing, source_hash, dpi):
+                        resumed = dict(existing)
+                        resumed["status"] = "success"
+                        resumed["resumed_without_processing"] = True
+                        entries.append(resumed)
+                        success_count += 1
+                        processed_count += 1
+                        emit("  já concluído; reutilizado pelo modo de retomada")
+                        persist("running", total_pdf_count, pending_count)
+                        continue
+
+                    duplicate_of = seen_hashes.get(source_hash)
+                    if duplicate_of:
+                        duplicate_count += 1
+                        processed_count += 1
+                        entries.append(
+                            {
+                                "member": member_name,
+                                "output_relative_path": relative_path.as_posix(),
+                                "status": "duplicate",
+                                "duplicate_of": duplicate_of,
+                                "source_sha256": source_hash,
+                                "dpi": dpi,
+                                "converter_version": __version__,
+                            }
+                        )
+                        emit(f"  duplicado exato de {duplicate_of}; conversão dispensada")
+                        persist("running", total_pdf_count, pending_count)
+                        continue
+                    seen_hashes[source_hash] = member_name
+
+                    current_entry: dict[str, object] = {
+                        "member": member_name,
+                        "output_relative_path": relative_path.as_posix(),
+                        "status": "processing",
+                        "source_sha256": source_hash,
+                        "output_directory": str(destination_dir),
+                        "dpi": dpi,
+                        "converter_version": __version__,
+                    }
+                    entries.append(current_entry)
+                    persist("running", total_pdf_count, pending_count)
+
+                    document_started = time.perf_counter()
                     markdown_path = convert_pdf(
                         temporary_pdf,
                         destination_dir,
@@ -157,49 +311,52 @@ def convert_zip_batch(zip_path: Path, output_dir: Path, dpi: int = 300) -> Batch
                         source_reference=source_reference,
                     )
                     manifest_path = destination_dir / f"{relative_path.stem}.manifest.json"
-                    success_count += 1
-                    entries.append(
+                    current_entry.update(
                         {
-                            "member": relative_path.as_posix(),
                             "status": "success",
-                            "output_directory": str(destination_dir),
                             "markdown_path": str(markdown_path),
                             "manifest_path": str(manifest_path),
+                            "processing_seconds": round(time.perf_counter() - document_started, 3),
                         }
                     )
+                    success_count += 1
+                    processed_count += 1
+                except KeyboardInterrupt:
+                    if entries and entries[-1].get("status") == "processing":
+                        entries[-1]["status"] = "interrupted"
+                        entries[-1]["error"] = "processamento interrompido pelo usuario"
+                    persist("interrupted", total_pdf_count, pending_count)
+                    raise
                 except Exception as exc:  # noqa: BLE001 - falhas devem ser isoladas por diploma
                     failure_count += 1
-                    entries.append(
+                    processed_count += 1
+                    if entries and entries[-1].get("status") == "processing":
+                        current_entry = entries[-1]
+                    else:
+                        current_entry = {
+                            "member": member_name,
+                            "output_relative_path": relative_path.as_posix(),
+                        }
+                        entries.append(current_entry)
+                    current_entry.update(
                         {
-                            "member": relative_path.as_posix(),
                             "status": "failed",
                             "output_directory": str(destination_dir),
                             "error_type": type(exc).__name__,
                             "error": str(exc),
                         }
                     )
+                persist("running", total_pdf_count, pending_count)
 
-    batch_manifest_path = output_dir / f"{zip_path.stem}.lote.manifest.json"
-    write_manifest(
-        {
-            "source_zip": zip_path,
-            "source_zip_sha256": sha256_file(zip_path),
-            "output_directory": output_dir,
-            "converter_version": __version__,
-            "pdf_count": pdf_count,
-            "success_count": success_count,
-            "failure_count": failure_count,
-            "skipped_non_pdf_count": skipped_count,
-            "directory_policy": "mirror_zip_structure",
-            "entries": entries,
-        },
-        batch_manifest_path,
-    )
+    final_status = "completed_with_failures" if failure_count else "completed"
+    persist(final_status, total_pdf_count, pending_count)
 
     return BatchConversionResult(
         manifest_path=batch_manifest_path,
-        pdf_count=pdf_count,
+        pdf_count=total_pdf_count,
         success_count=success_count,
         failure_count=failure_count,
         skipped_count=skipped_count,
+        duplicate_count=duplicate_count,
+        pending_count=pending_count,
     )

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from PIL import Image, ImageDraw
 
 from conversor_his.coordenadas import avaliar_registro_de_coordenadas
 from conversor_his.diagnostico import diagnosticar_pdf
 from conversor_his.lote import converter_lote_zip
-from conversor_his.manifesto import escrever_manifesto
+from conversor_his.manifesto import escrever_manifesto, ler_manifesto
 from conversor_his.mapas import classificar_pagina_de_mapa
 from conversor_his.modelos import (
     AvaliacaoDeCoordenadas,
@@ -28,6 +31,7 @@ def test_api_publica_em_portugues_esta_disponivel() -> None:
     assert callable(converter_lote_zip)
     assert callable(diagnosticar_pdf)
     assert callable(escrever_manifesto)
+    assert callable(ler_manifesto)
     assert callable(normalizar_texto_de_prosa)
     assert AvaliacaoDeCoordenadas.__name__ == "AvaliacaoDeCoordenadas"
     assert AvaliacaoDeTabela.__name__ == "AvaliacaoDeTabela"
@@ -78,3 +82,38 @@ ZIP 1                            1,2                        20            OUC, O
     assert isinstance(avaliacao_raster, AvaliacaoVisualRaster)
     assert avaliacao_raster.classificacao == "raster_table_candidate"
     assert avaliacao_raster.classification == avaliacao_raster.classificacao
+
+
+def test_manifesto_novo_usa_metadados_em_portugues(tmp_path: Path) -> None:
+    caminho = tmp_path / "manifesto.json"
+    escrever_manifesto({"caminho_origem": "lei.pdf"}, caminho)
+
+    dados = json.loads(caminho.read_text(encoding="utf-8"))
+    assert dados["caminho_origem"] == "lei.pdf"
+    assert "gerado_em" in dados
+    assert "atualizado_em" in dados
+    assert "generated_at" not in dados
+    assert "updated_at" not in dados
+
+
+def test_leitor_normaliza_manifesto_da_api_anterior(tmp_path: Path) -> None:
+    caminho = tmp_path / "manifesto_07.json"
+    caminho.write_text(
+        json.dumps(
+            {
+                "source_path": "lei.pdf",
+                "page_count": 2,
+                "review_pages": [2],
+                "processing_seconds": 1.25,
+                "generated_at": "2026-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dados = ler_manifesto(caminho)
+    assert dados["caminho_origem"] == "lei.pdf"
+    assert dados["quantidade_paginas"] == 2
+    assert dados["paginas_para_revisao"] == [2]
+    assert dados["segundos_de_processamento"] == 1.25
+    assert dados["gerado_em"] == "2026-01-01T00:00:00+00:00"

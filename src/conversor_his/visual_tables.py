@@ -6,13 +6,13 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
-from .models import TableAssessment
+from .tabelas import AvaliacaoDeTabela
 
-_MIN_HORIZONTAL_LENGTH = 20.0
-_MAX_LINE_THICKNESS = 2.5
-_MIN_VERTICAL_LENGTH = 8.0
+_COMPRIMENTO_HORIZONTAL_MINIMO = 20.0
+_ESPESSURA_LINHA_MAXIMA = 2.5
+_COMPRIMENTO_VERTICAL_MINIMO = 8.0
 
-_LEGAL_MARKERS = {
+_MARCADORES_LEGAIS = {
     "lei": re.compile(r"\bLEI\s+(?:N|NO|NUMERO)\b"),
     "artigo": re.compile(r"\bART\.?\s*\d+"),
     "prefeito": re.compile(r"\bPREFEIT[OA]\b"),
@@ -25,151 +25,207 @@ _LEGAL_MARKERS = {
 
 
 @dataclass(slots=True)
-class VisualGridEvidence:
-    detected: bool
-    strong: bool
-    score: int
-    rectangle_count: int
-    horizontal_lines: int
-    vertical_lines: int
-    reasons: list[str] = field(default_factory=list)
+class EvidenciaDeGradeVisual:
+    detectada: bool
+    forte: bool
+    pontuacao: int
+    quantidade_retangulos: int
+    linhas_horizontais: int
+    linhas_verticais: int
+    motivos: list[str] = field(default_factory=list)
+
+    @property
+    def detected(self) -> bool:
+        return self.detectada
+
+    @property
+    def strong(self) -> bool:
+        return self.forte
+
+    @property
+    def score(self) -> int:
+        return self.pontuacao
+
+    @property
+    def rectangle_count(self) -> int:
+        return self.quantidade_retangulos
+
+    @property
+    def horizontal_lines(self) -> int:
+        return self.linhas_horizontais
+
+    @property
+    def vertical_lines(self) -> int:
+        return self.linhas_verticais
+
+    @property
+    def reasons(self) -> list[str]:
+        return self.motivos
 
 
-def _ascii_upper(text: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", text)
+VisualGridEvidence = EvidenciaDeGradeVisual
+
+
+def _maiusculas_sem_acentos(texto: str) -> str:
+    texto_decomposto = unicodedata.normalize("NFKD", texto)
     return "".join(
-        char for char in decomposed if not unicodedata.combining(char)
+        caractere
+        for caractere in texto_decomposto
+        if not unicodedata.combining(caractere)
     ).upper()
 
 
-def assess_vector_grid(page: Any) -> VisualGridEvidence:
-    """Obtém evidência de grade diretamente das operações vetoriais do PDF.
+def avaliar_grade_vetorial(pagina: Any) -> EvidenciaDeGradeVisual:
+    """Obtém evidência de grade diretamente das operações vetoriais do PDF."""
 
-    Tabelas produzidas por editores de texto e planilhas costumam representar cada
-    borda como um retângulo muito fino. A contagem é independente do texto extraído
-    e evita renderizar todas as páginas apenas para localizar linhas de grade.
-    """
-
-    rectangle_count = 0
-    horizontal_lines = 0
-    vertical_lines = 0
-    reasons: list[str] = []
+    quantidade_retangulos = 0
+    linhas_horizontais = 0
+    linhas_verticais = 0
+    motivos: list[str] = []
 
     try:
-        contents = page.get_contents()
-        operations = [] if contents is None else getattr(contents, "operations", [])
-        for operands, operator in operations:
-            if operator != b"re" or len(operands) < 4:
+        conteudos = pagina.get_contents()
+        operacoes = [] if conteudos is None else getattr(conteudos, "operations", [])
+        for operandos, operador in operacoes:
+            if operador != b"re" or len(operandos) < 4:
                 continue
             try:
-                _, _, width, height = (float(value) for value in operands[:4])
+                _, _, largura, altura = (
+                    float(valor) for valor in operandos[:4]
+                )
             except (TypeError, ValueError):
                 continue
 
-            rectangle_count += 1
-            abs_width = abs(width)
-            abs_height = abs(height)
+            quantidade_retangulos += 1
+            largura_absoluta = abs(largura)
+            altura_absoluta = abs(altura)
             if (
-                abs_height <= _MAX_LINE_THICKNESS
-                and abs_width >= _MIN_HORIZONTAL_LENGTH
+                altura_absoluta <= _ESPESSURA_LINHA_MAXIMA
+                and largura_absoluta >= _COMPRIMENTO_HORIZONTAL_MINIMO
             ):
-                horizontal_lines += 1
+                linhas_horizontais += 1
             if (
-                abs_width <= _MAX_LINE_THICKNESS
-                and abs_height >= _MIN_VERTICAL_LENGTH
+                largura_absoluta <= _ESPESSURA_LINHA_MAXIMA
+                and altura_absoluta >= _COMPRIMENTO_VERTICAL_MINIMO
             ):
-                vertical_lines += 1
-    except Exception as exc:  # pragma: no cover - PDF corrompido ou backend incomum
-        return VisualGridEvidence(
-            detected=False,
-            strong=False,
-            score=0,
-            rectangle_count=rectangle_count,
-            horizontal_lines=horizontal_lines,
-            vertical_lines=vertical_lines,
-            reasons=[f"evidencia vetorial indisponivel: {type(exc).__name__}"],
+                linhas_verticais += 1
+    except Exception as erro:  # pragma: no cover - PDF corrompido ou backend incomum
+        return EvidenciaDeGradeVisual(
+            detectada=False,
+            forte=False,
+            pontuacao=0,
+            quantidade_retangulos=quantidade_retangulos,
+            linhas_horizontais=linhas_horizontais,
+            linhas_verticais=linhas_verticais,
+            motivos=[f"evidencia vetorial indisponivel: {type(erro).__name__}"],
         )
 
-    detected = (
-        rectangle_count >= 10
-        and horizontal_lines >= 4
-        and vertical_lines >= 3
+    detectada = (
+        quantidade_retangulos >= 10
+        and linhas_horizontais >= 4
+        and linhas_verticais >= 3
     )
-    strong = (
-        rectangle_count >= 16
-        and horizontal_lines >= 8
-        and vertical_lines >= 6
-    )
-
-    score = 0
-    if detected:
-        score += 3
-        reasons.append("grade vetorial com linhas horizontais e verticais")
-    if strong:
-        score += 3
-        reasons.append("grade vetorial forte e repetitiva")
-    score += min(horizontal_lines, 20) // 4
-    score += min(vertical_lines, 20) // 3
-
-    return VisualGridEvidence(
-        detected=detected,
-        strong=strong,
-        score=score,
-        rectangle_count=rectangle_count,
-        horizontal_lines=horizontal_lines,
-        vertical_lines=vertical_lines,
-        reasons=reasons,
+    forte = (
+        quantidade_retangulos >= 16
+        and linhas_horizontais >= 8
+        and linhas_verticais >= 6
     )
 
+    pontuacao = 0
+    if detectada:
+        pontuacao += 3
+        motivos.append("grade vetorial com linhas horizontais e verticais")
+    if forte:
+        pontuacao += 3
+        motivos.append("grade vetorial forte e repetitiva")
+    pontuacao += min(linhas_horizontais, 20) // 4
+    pontuacao += min(linhas_verticais, 20) // 3
 
-def _legal_marker_count(text: str) -> int:
-    normalized = _ascii_upper(text)
-    return sum(bool(pattern.search(normalized)) for pattern in _LEGAL_MARKERS.values())
+    return EvidenciaDeGradeVisual(
+        detectada=detectada,
+        forte=forte,
+        pontuacao=pontuacao,
+        quantidade_retangulos=quantidade_retangulos,
+        linhas_horizontais=linhas_horizontais,
+        linhas_verticais=linhas_verticais,
+        motivos=motivos,
+    )
+
+
+def _contar_marcadores_legais(texto: str) -> int:
+    texto_normalizado = _maiusculas_sem_acentos(texto)
+    return sum(
+        bool(padrao.search(texto_normalizado))
+        for padrao in _MARCADORES_LEGAIS.values()
+    )
+
+
+def combinar_evidencia_visual_de_tabela(
+    avaliacao: AvaliacaoDeTabela,
+    evidencia: EvidenciaDeGradeVisual,
+    texto_bruto: str,
+) -> AvaliacaoDeTabela:
+    """Combina evidência textual e vetorial sem forçar certeza indevida."""
+
+    avaliacao.grade_visual_detectada = evidencia.detectada
+    avaliacao.grade_visual_forte = evidencia.forte
+    avaliacao.pontuacao_grade_visual = evidencia.pontuacao
+    avaliacao.quantidade_retangulos_vetoriais = evidencia.quantidade_retangulos
+    avaliacao.linhas_vetoriais_horizontais = evidencia.linhas_horizontais
+    avaliacao.linhas_vetoriais_verticais = evidencia.linhas_verticais
+
+    for motivo in evidencia.motivos:
+        if motivo not in avaliacao.motivos:
+            avaliacao.motivos.append(motivo)
+
+    if evidencia.detectada and avaliacao.classificacao == "not_table":
+        avaliacao.classificacao = "visual_candidate"
+        avaliacao.suspeita = False
+        avaliacao.pontuacao += evidencia.pontuacao
+        avaliacao.perfil_conteudo = "visual_grid"
+        return avaliacao
+
+    tem_titulo_explicito = any(
+        "titulo tabular" in motivo for motivo in avaliacao.motivos
+    )
+    prosa_legal = (
+        avaliacao.classificacao == "candidate"
+        and avaliacao.perfil_conteudo == "generic_table"
+        and avaliacao.proporcao_lista_legal >= 0.20
+        and len(avaliacao.ocorrencias_cabecalho) <= 2
+        and not tem_titulo_explicito
+        and _contar_marcadores_legais(texto_bruto) >= 3
+    )
+    if not evidencia.detectada and prosa_legal:
+        avaliacao.classificacao = "not_table"
+        avaliacao.suspeita = False
+        avaliacao.motivos.append(
+            "reclassificada como prosa juridica: sem grade vetorial e com marcadores legais"
+        )
+        avaliacao.perfil_conteudo = "legal_amendment"
+
+    return avaliacao
+
+
+def assess_vector_grid(page: Any) -> EvidenciaDeGradeVisual:
+    """Preserva a assinatura pública da versão 0.7."""
+    return avaliar_grade_vetorial(page)
 
 
 def merge_visual_table_evidence(
-    assessment: TableAssessment,
-    evidence: VisualGridEvidence,
+    assessment: AvaliacaoDeTabela,
+    evidence: EvidenciaDeGradeVisual,
     raw_text: str,
-) -> TableAssessment:
-    """Combina evidência textual e vetorial sem forçar certeza indevida."""
+) -> AvaliacaoDeTabela:
+    """Preserva a assinatura pública da versão 0.7."""
+    return combinar_evidencia_visual_de_tabela(assessment, evidence, raw_text)
 
-    assessment.visual_grid_detected = evidence.detected
-    assessment.visual_grid_strong = evidence.strong
-    assessment.visual_grid_score = evidence.score
-    assessment.vector_rectangle_count = evidence.rectangle_count
-    assessment.vector_horizontal_lines = evidence.horizontal_lines
-    assessment.vector_vertical_lines = evidence.vertical_lines
 
-    for reason in evidence.reasons:
-        if reason not in assessment.reasons:
-            assessment.reasons.append(reason)
-
-    if evidence.detected and assessment.classification == "not_table":
-        assessment.classification = "visual_candidate"
-        assessment.suspected = False
-        assessment.score += evidence.score
-        assessment.content_profile = "visual_grid"
-        return assessment
-
-    # Emendas legais de página única podem imitar colunas por causa do modo layout.
-    # Sem grade vetorial, título tabular ou vocabulário matricial, a prosa jurídica
-    # deve prevalecer sobre alinhamentos artificiais.
-    has_explicit_title = any("titulo tabular" in reason for reason in assessment.reasons)
-    legal_prose = (
-        assessment.classification == "candidate"
-        and assessment.content_profile == "generic_table"
-        and assessment.legal_list_ratio >= 0.20
-        and len(assessment.header_hits) <= 2
-        and not has_explicit_title
-        and _legal_marker_count(raw_text) >= 3
-    )
-    if not evidence.detected and legal_prose:
-        assessment.classification = "not_table"
-        assessment.suspected = False
-        assessment.reasons.append(
-            "reclassificada como prosa juridica: sem grade vetorial e com marcadores legais"
-        )
-        assessment.content_profile = "legal_amendment"
-
-    return assessment
+__all__ = [
+    "EvidenciaDeGradeVisual",
+    "VisualGridEvidence",
+    "assess_vector_grid",
+    "avaliar_grade_vetorial",
+    "combinar_evidencia_visual_de_tabela",
+    "merge_visual_table_evidence",
+]

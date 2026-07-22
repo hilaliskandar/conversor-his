@@ -1,8 +1,8 @@
 # Conversor HIS
 
-Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com OCR seletivo, rastreabilidade e controle de qualidade.
+Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com OCR seletivo, preservação visual, rastreabilidade e controle de qualidade.
 
-Versão atual: **0.6.2**.
+Versão atual: **0.7.0**.
 
 ## Princípios
 
@@ -11,12 +11,11 @@ Versão atual: **0.6.2**.
 - diagnostica cada página antes de escolher a rota de conversão;
 - aplica extração nativa quando possível e OCR quando necessário;
 - preserva simultaneamente imagem e texto em páginas visuais;
-- preserva tabelas confirmadas, candidatas, mistas, visuais e continuações como texto bruto e imagem;
-- combina evidência textual com linhas e retângulos vetoriais do próprio PDF;
-- compara extrações `layout` e simples quando encontra rotação ou espaçamento excessivo;
-- normaliza espaços e caracteres invisíveis na versão textual pesquisável;
-- mantém o `layout` bruto para diagnóstico estrutural e preservação tabular;
-- reutiliza a extração nativa entre diagnóstico e conversão;
+- combina evidência textual, vetorial e raster;
+- preserva tabelas nativas, vetoriais e rasterizadas para revisão;
+- separa registros de coordenadas das métricas de tabelas;
+- distingue mapas confirmados, candidatos e capas cartográficas;
+- preserva imagem de toda página com OCR médio ou baixo;
 - registra decisões, avisos, tempos e artefatos em manifestos auditáveis;
 - grava Markdown e manifestos de forma atômica;
 - permite limitar, interromper e retomar lotes municipais.
@@ -29,6 +28,8 @@ python -m venv .venv
 python -m pip install --upgrade pip
 pip install -e ".[dev,ocr]"
 ```
+
+A série 0.7.x inclui `numpy` e `opencv-python-headless` para análise visual seletiva de páginas rasterizadas.
 
 ## Uso
 
@@ -56,19 +57,9 @@ O valor `0` em `--documentos` processa todos os PDFs elegíveis:
 conversor-his converter-lote `
   --entrada "D:\corpus\originais\municipio.zip" `
   --saida "D:\corpus\processado\municipio" `
-  --documentos 0
+  --documentos 0 `
+  --dpi 300
 ```
-
-### Amostra limitada
-
-```powershell
-conversor-his converter-lote `
-  --entrada "D:\corpus\originais\municipio.zip" `
-  --saida "D:\corpus\processado\municipio_teste" `
-  --documentos 10
-```
-
-A forma abreviada é `-n 10`.
 
 ### Retomada
 
@@ -77,113 +68,160 @@ conversor-his converter-lote `
   --entrada "D:\corpus\originais\municipio.zip" `
   --saida "D:\corpus\processado\municipio" `
   --documentos 0 `
+  --dpi 300 `
   --retomar
 ```
 
 A retomada exige coincidência entre hash da fonte, versão do conversor, DPI e produtos finais existentes.
 
-Por padrão, uma pasta-raiz única do ZIP é removida. Use `--manter-raiz-comum` para preservá-la.
+## Arquitetura de classificação
 
-## Detecção tabular
+### Texto nativo
 
-A classificação textual é executada sobre o texto bruto em modo `layout`, antes da normalização destinada à pesquisa. O detector considera:
+O texto bruto em modo `layout` é analisado antes da normalização. O detector considera títulos, cabeçalhos, alinhamentos, códigos territoriais, parâmetros urbanísticos, linhas compactas, continuidade entre páginas e penalizações para prosa jurídica.
 
-- títulos de tabela, quadro e anexo;
-- cabeçalhos urbanísticos;
-- posições horizontais recorrentes;
-- códigos de zonas e macrozonas;
-- lote, testada, recuos, taxas, gabarito e coeficiente de aproveitamento;
-- linhas compactas com valores e requisitos;
-- continuidade de matrizes em páginas sem cabeçalho repetido;
-- páginas mistas, com prosa e quadro na mesma página;
-- penalizações para incisos, definições jurídicas, parágrafos longos e coordenadas.
+### Evidência vetorial
 
-A versão 0.6.2 acrescenta evidência vetorial diretamente das operações gráficas do PDF:
+Páginas nativas também são avaliadas pelas operações gráficas do PDF:
 
-- retângulos finos usados como bordas de células;
-- linhas horizontais repetidas;
-- linhas verticais repetidas;
-- grades que ocupam apenas parte da página;
-- quadros genéricos, inclusive viários e descritivos;
-- proteção contra páginas jurídicas que imitam colunas sem possuir grade.
+- retângulos finos usados como bordas;
+- linhas horizontais e verticais;
+- grades parciais;
+- pequenas regiões tabulares;
+- proteção contra molduras simples e alinhamentos artificiais.
 
-Estados possíveis:
+### Evidência raster
 
-- `confirmed`;
-- `candidate`;
-- `mixed_candidate`;
-- `continuation_candidate`;
-- `visual_candidate`;
-- `not_table`.
+A análise raster é seletiva e se aplica principalmente às páginas encaminhadas ao OCR. Uma miniatura a até 150 DPI é examinada para localizar:
 
-As cinco primeiras classes preservam imagem e texto bruto para revisão estrutural. As imagens tabulares são geradas a até 200 DPI; o DPI configurado continua sendo utilizado para OCR.
+- linhas horizontais;
+- linhas verticais;
+- cruzamentos;
+- regiões fechadas;
+- proporção estruturada da página;
+- conjuntos de caixas e conectores.
 
-## Comportamento do lote
+A análise não reconstrói células nem interpreta relações normativas. Seu objetivo é identificar e preservar estruturas visuais relevantes.
 
-- ordena os PDFs por caminho para tornar amostras reproduzíveis;
-- relaciona arquivos não PDF no manifesto como ignorados;
-- rejeita travessia de diretórios, caminhos absolutos e links simbólicos;
-- detecta duplicidade de caminho e conteúdo por SHA-256;
-- isola falhas por documento;
-- atualiza o manifesto geral antes e depois de cada PDF;
-- registra `started_at`, `updated_at` e `completed_at`;
-- distingue `completed`, `completed_with_limit` e `completed_with_failures`;
-- mantém produtos concluídos quando a execução é interrompida.
+## Classes visuais
+
+- `confirmed`: tabela nativa ou vetorial confirmada;
+- `candidate`: candidata textual;
+- `mixed_candidate`: página parcialmente tabular;
+- `continuation_candidate`: continuação sem cabeçalho repetido;
+- `visual_candidate`: grade vetorial com pouca evidência textual;
+- `raster_table_candidate`: tabela identificada na imagem;
+- `diagram_candidate`: possível fluxograma, organograma ou esquema;
+- `coordinate_register`: registro de coordenadas ou memorial geométrico;
+- `map_confirmed`: conteúdo cartográfico confirmado;
+- `map_candidate`: provável conteúdo cartográfico;
+- `map_cover`: capa ou índice que anuncia mapas;
+- `ocr_review`: OCR médio ou baixo com imagem obrigatória;
+- `not_table`: página sem estrutura tabular relevante.
+
+## Preservação por classe
+
+| Classe | Imagem | Texto | Revisão |
+|---|---|---|---|
+| tabela nativa/vetorial | sim, até 200 DPI | bruto | obrigatória |
+| tabela raster | sim, até 200 DPI | OCR | obrigatória |
+| diagrama | sim, até 250 DPI | OCR | obrigatória |
+| coordenadas | sim, até 200 DPI | bruto ou OCR | obrigatória |
+| mapa confirmado/candidato | sim, até 300 DPI | nativo ou OCR | obrigatória |
+| capa cartográfica | sim | nativo ou OCR | classificatória |
+| OCR médio/baixo | sim, até 300 DPI | OCR | obrigatória |
+| texto rotacionado | sim, até 300 DPI | extração selecionada | obrigatória |
+
+## Evidência raster inicial
+
+Uma candidata raster exige, em termos gerais:
+
+- pelo menos quatro linhas horizontais;
+- pelo menos três linhas verticais;
+- pelo menos seis cruzamentos;
+- região estruturada equivalente a pelo menos 5% da página.
+
+A evidência é considerada forte quando alcança:
+
+- pelo menos oito linhas horizontais;
+- pelo menos seis linhas verticais;
+- pelo menos vinte cruzamentos;
+- região estruturada equivalente a pelo menos 10% da página.
+
+Esses limiares são provisórios e devem ser recalibrados no gold set do corpus.
+
+## Manifesto
+
+Além dos campos anteriores, a 0.7.0 registra:
+
+- `raster_table_pages`;
+- `diagram_pages`;
+- `coordinate_register_pages`;
+- `map_candidate_pages`;
+- `map_cover_pages`;
+- `ocr_review_image_pages`;
+- evidências raster por página;
+- disponibilidade de imagem de revisão.
+
+## Gates de validação da 0.7.0
+
+| Métrica | Gate mínimo |
+|---|---:|
+| Revocação das tabelas raster do gold set | 0,95 |
+| Precisão de tabelas raster | 0,80 |
+| Revocação dos diagramas conhecidos | 0,90 |
+| Precisão de mapas | 0,80 |
+| Imagem disponível para OCR médio/baixo | 1,00 |
+| Integridade de páginas, links e hashes | 1,00 |
+| Aumento desejável do tempo total | no máximo 25% |
 
 ## Produtos gerados
 
 - `<documento>.md`: conteúdo pesquisável e rastreável por página;
-- `<documento>.manifest.json`: hashes, rotas, evidências, avisos, artefatos e tempo;
-- `<documento>_assets/`: imagens visuais e tabulares;
+- `<documento>.manifest.json`: hashes, rotas, evidências, avisos e artefatos;
+- `<documento>_assets/`: imagens visuais, tabulares e de revisão;
 - `<nome-do-zip>.lote.manifest.json`: inventário incremental do lote.
 
 ## Histórico de versões
 
-### 0.6.2 — evidência vetorial e controle de continuidade
+### 0.7.0 — preservação visual seletiva
 
-- detecta grades a partir de operações vetoriais do PDF, sem rasterizar todas as páginas;
+- acrescenta análise raster seletiva às páginas OCR;
+- preserva tabelas rasterizadas como `raster_table_candidate`;
+- identifica possíveis diagramas;
+- preserva imagem de todo OCR médio ou baixo;
+- preserva imagem de páginas com texto rotacionado;
+- separa registros de coordenadas das tabelas;
+- distingue mapas, candidatos cartográficos e capas de mapas;
+- registra métricas visuais e novas listas no manifesto;
+- mantém OCR a 300 DPI e ativos tabulares em resolução menor;
+- acrescenta testes sintéticos para grades, diagramas, coordenadas e mapas.
+
+### 0.6.2 — evidência vetorial e continuidade
+
+- detecta grades a partir das operações vetoriais do PDF;
 - recupera quadros viários, tabelas genéricas e pequenas regiões tabulares;
-- acrescenta `visual_candidate` para páginas com grade forte e pouca evidência textual;
-- registra retângulos, linhas horizontais, linhas verticais e escore visual no manifesto;
-- rebaixa prosa jurídica que imita tabela quando não existe grade nem título tabular;
-- reutiliza a extração nativa no diagnóstico e na conversão, eliminando processamento duplicado;
-- limita imagens tabulares a 200 DPI para reduzir tempo e armazenamento;
-- acrescenta testes para grade verdadeira, moldura simples e emenda legal sem tabela.
+- acrescenta `visual_candidate`;
+- rebaixa prosa jurídica sem grade;
+- reutiliza a extração nativa;
+- limita imagens tabulares a 200 DPI.
 
-### 0.6.1 — detecção tabular orientada pelo corpus normativo
+### 0.6.1 — detecção tabular orientada pelo corpus
 
-- corrige a classificação para usar o `layout` bruto, sem perder os espaços que representam colunas;
-- recupera matrizes de parâmetros urbanísticos como a página 131 do Plano Diretor de Abreu e Lima;
-- mantém listas de definições jurídicas como `not_table`;
-- reconhece códigos de zona, parâmetros urbanísticos e linhas compactas de valores;
-- acrescenta `mixed_candidate` para páginas parcialmente tabulares;
-- acrescenta `continuation_candidate` para quadros que prosseguem sem cabeçalho repetido;
-- registra no manifesto evidências como linhas numéricas, códigos de zona, parâmetros encontrados e perfil do conteúdo;
-- incorpora testes derivados de exemplos reais do corpus, sem regras específicas por município ou página.
+- usa o `layout` bruto para preservar alinhamentos;
+- reconhece matrizes urbanísticas e suas continuações;
+- acrescenta classes mistas e evidências de parâmetros urbanísticos.
 
-### 0.6.0 — validação operacional em corpus normativo real
+### 0.6.0 — validação operacional
 
-- promovida após execução sem falhas em amostra real de dez documentos e 332 páginas;
-- corrige referências Markdown de imagens cujos caminhos contêm espaços;
-- normaliza Unicode, espaços posicionais excessivos e caracteres de largura zero;
-- compara extração simples com `layout` quando há espaçamento anômalo;
-- preserva o texto bruto de tabelas em bloco próprio;
-- reforça penalizações contra falsos positivos tabulares em listas jurídicas;
-- registra caminhos de arquivos não PDF ignorados;
-- preserva o instante inicial do lote e acrescenta instante de conclusão;
-- usa o estado `completed_with_limit` quando apenas a amostra solicitada foi concluída.
-
-### 0.5.3 — preservação visual e execução retomável
-
-- acrescenta `--documentos`, `-n` e `--retomar`;
-- cria manifesto incremental;
-- detecta duplicados por conteúdo;
-- captura texto rotacionado;
-- preserva texto e imagem em páginas visuais e tabulares.
+- valida conversão em amostra real;
+- normaliza espaços e caracteres invisíveis;
+- preserva texto bruto de tabelas;
+- registra arquivos ignorados e estados do lote.
 
 ## Estado atual
 
-A série 0.6.x é operacional para conversão controlada. A detecção tabular permanece em calibração progressiva sobre corpus real. A 0.6.2 prioriza a recuperação de grades e continuações, sem transformar alinhamentos artificiais da prosa jurídica em tabelas.
+A 0.7.0 é uma versão de validação ampliada. A arquitetura está preparada para preservar estruturas rasterizadas e organizar a revisão, mas seus thresholds devem ser medidos no gold set antes de uso consolidado sem supervisão humana.
 
 ## Licenciamento
 

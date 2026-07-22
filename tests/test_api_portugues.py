@@ -52,16 +52,19 @@ def test_funcoes_portuguesas_preservam_comportamento() -> None:
 def test_resultados_tabular_e_raster_usam_campos_em_portugues() -> None:
     avaliacao_tabela = avaliar_tabela(
         """
-        QUADRO DE PARAMETROS URBANISTICOS
-        ZONA        LOTE        TESTADA        RECUO
-        Z1          200         10             5
-        Z2          250         12             5
-        Z3          300         15             6
-        Z4          400         20             8
-        """
+ANEXO VI
+PARAMETROS E INSTRUMENTOS URBANISTICOS POR ZONA
+ZONA                  coeficiente de              taxa de solo          instrumentos da             observacoes
+                      aproveitamento              natural (%)           politica urbana
+ZAA                              3,0                        25            DP, PEUC, IP                 1, 2, 3, 4
+ZAM                              2,5                        25            DP, PEUC, IP                 1, 2, 3, 4
+ZAB                              1,5                        30            DP, PEUC, IP                 1, 2, 3, 4
+ZAR                              1,5                        30            DP, OUC, OO                  1, 2, 3, 4
+ZIP 1                            1,2                        20            OUC, OO                     1, 2, 3, 4
+"""
     )
     assert isinstance(avaliacao_tabela, AvaliacaoDeTabela)
-    assert avaliacao_tabela.classificacao != "not_table"
+    assert avaliacao_tabela.classificacao == "confirmed"
     assert avaliacao_tabela.classification == avaliacao_tabela.classificacao
 
     imagem = Image.new("RGB", (900, 1200), "white")

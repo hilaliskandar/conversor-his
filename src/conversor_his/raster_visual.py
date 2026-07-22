@@ -1,9 +1,26 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
 
 from .models import RasterVisualAssessment
+
+_DIAGRAM_TEXT_RE = re.compile(
+    r"\b(?:FLUXOGRAMA|ORGANOGRAMA|DIAGRAMA|ESQUEMA|REPRESENTACAO\s+GRAFICA|"
+    r"CORTE|ELEVACAO|DETALHE|PLANTA\s+BAIXA|GRAFICO)\b"
+)
+_TABLE_TEXT_RE = re.compile(
+    r"\b(?:TABELA|QUADRO|PARAMETROS?|INDICES?|COLUNA|LINHA|TOTAL|SUBTOTAL)\b"
+)
+
+
+def _ascii_upper(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    ).upper()
 
 
 def _load_cv_stack() -> tuple[Any, Any]:
@@ -25,18 +42,20 @@ def _component_count(mask: Any, cv2: Any, min_area: int = 3) -> int:
     return sum(int(stats[index, cv2.CC_STAT_AREA]) >= min_area for index in range(1, count))
 
 
-def assess_raster_visual(image: Any) -> RasterVisualAssessment:
+def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
     """Detecta tabelas e diagramas em páginas rasterizadas.
 
     A função trabalha sobre miniaturas e produz apenas evidência de preservação.
-    Ela não reconstrói células nem interpreta relações normativas.
+    Ela não reconstrói células nem interpreta relações normativas. O texto OCR,
+    quando disponível, atua apenas como evidência auxiliar e nunca substitui a
+    estrutura visual.
     """
 
     cv2, np = _load_cv_stack()
     rgb = np.asarray(image.convert("RGB"))
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    normalized_text = _ascii_upper(text)
 
-    # Fundo branco e traços escuros tornam-se foreground binário.
     binary = cv2.adaptiveThreshold(
         gray,
         255,
@@ -70,6 +89,8 @@ def assess_raster_visual(image: Any) -> RasterVisualAssessment:
     closed_regions = 0
     structured_area = 0.0
     box_like_regions = 0
+    region_widths: list[int] = []
+    region_heights: list[int] = []
     for contour in contours:
         x, y, box_width, box_height = cv2.boundingRect(contour)
         area = box_width * box_height
@@ -82,28 +103,46 @@ def assess_raster_visual(image: Any) -> RasterVisualAssessment:
             structured_area += area
             if box_width >= width * 0.04 and box_height >= height * 0.025:
                 box_like_regions += 1
+                region_widths.append(box_width)
+                region_heights.append(box_height)
 
     structured_area_ratio = min(structured_area / page_area, 1.0)
+    has_diagram_text = bool(_DIAGRAM_TEXT_RE.search(normalized_text))
+    has_table_text = bool(_TABLE_TEXT_RE.search(normalized_text))
+
+    # Uma grade regular apresenta muitos cruzamentos relativamente ao número de linhas.
+    line_total = max(horizontal_lines + vertical_lines, 1)
+    intersection_density = intersections / line_total
+    regular_grid = intersection_density >= 1.15 and intersections >= 8
 
     table_candidate = (
         horizontal_lines >= 4
         and vertical_lines >= 3
         and intersections >= 6
-        and structured_area_ratio >= 0.05
+        and structured_area_ratio >= 0.04
+        and (regular_grid or has_table_text)
     )
     strong_table = (
         horizontal_lines >= 8
         and vertical_lines >= 6
         and intersections >= 20
-        and structured_area_ratio >= 0.10
+        and structured_area_ratio >= 0.08
+        and regular_grid
     )
 
-    # Diagramas tendem a ter caixas e conectores, mas não a regularidade de uma grade.
+    # Diagramas podem conter muitas linhas, mas têm menos cruzamentos regulares e
+    # caixas maiores e heterogêneas. Evidência textual explícita tem precedência
+    # quando a grade não é forte.
     diagram_candidate = (
-        not table_candidate
-        and box_like_regions >= 3
-        and (horizontal_lines + vertical_lines) >= 5
-        and 0.01 <= structured_area_ratio <= 0.45
+        box_like_regions >= 2
+        and (horizontal_lines + vertical_lines) >= 4
+        and 0.008 <= structured_area_ratio <= 0.60
+        and (
+            has_diagram_text
+            or not regular_grid
+            or intersections < max(12, box_like_regions * 4)
+        )
+        and not strong_table
     )
 
     score = 0
@@ -112,7 +151,15 @@ def assess_raster_visual(image: Any) -> RasterVisualAssessment:
     detected = False
     strong = False
 
-    if table_candidate:
+    if diagram_candidate and (has_diagram_text or not table_candidate):
+        classification = "diagram_candidate"
+        detected = True
+        score = 4 + min(box_like_regions, 10)
+        if has_diagram_text:
+            score += 3
+            reasons.append("vocabulário explícito de diagrama ou representação gráfica")
+        reasons.append("caixas e conectores sem regularidade suficiente de grade tabular")
+    elif table_candidate:
         classification = "raster_table_candidate"
         detected = True
         strong = strong_table
@@ -120,16 +167,13 @@ def assess_raster_visual(image: Any) -> RasterVisualAssessment:
         score += min(horizontal_lines, 20) // 4
         score += min(vertical_lines, 20) // 3
         score += min(intersections, 40) // 8
+        if has_table_text:
+            score += 2
         if strong_table:
             score += 4
             reasons.append("grade raster forte com linhas e cruzamentos regulares")
         else:
             reasons.append("grade raster candidata com estrutura celular")
-    elif diagram_candidate:
-        classification = "diagram_candidate"
-        detected = True
-        score = 4 + min(box_like_regions, 10)
-        reasons.append("conjunto de caixas e conectores sem grade tabular regular")
 
     return RasterVisualAssessment(
         classification=classification,

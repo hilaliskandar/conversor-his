@@ -29,10 +29,10 @@ def test_api_publica_em_portugues_esta_disponivel() -> None:
     assert callable(diagnosticar_pdf)
     assert callable(escrever_manifesto)
     assert callable(normalizar_texto_de_prosa)
-    assert AvaliacaoDeCoordenadas.__name__ == "CoordinateAssessment"
+    assert AvaliacaoDeCoordenadas.__name__ == "AvaliacaoDeCoordenadas"
     assert AvaliacaoDeTabela.__name__ == "AvaliacaoDeTabela"
     assert AvaliacaoVisualRaster.__name__ == "AvaliacaoVisualRaster"
-    assert ManifestoDeConversao.__name__ == "ConversionManifest"
+    assert ManifestoDeConversao.__name__ == "ManifestoDeConversao"
 
 
 def test_funcoes_portuguesas_preservam_comportamento() -> None:

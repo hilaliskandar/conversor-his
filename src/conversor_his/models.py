@@ -94,6 +94,11 @@ class RasterVisualAssessment:
     closed_regions: int
     structured_area_ratio: float
     arrow_like_components: int = 0
+    partial_grid_detected: bool = False
+    contextual_continuation: bool = False
+    recurrent_mask_applied: bool = False
+    table_text_evidence: bool = False
+    diagram_text_evidence: bool = False
     reasons: list[str] = field(default_factory=list)
 
 

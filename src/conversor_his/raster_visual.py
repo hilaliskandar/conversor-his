@@ -12,7 +12,7 @@ _DIAGRAM_TEXT_RE = re.compile(
     r"CORTE|ELEVACAO|DETALHE|PLANTA\s+BAIXA|GRAFICO)\b"
 )
 _TABLE_TEXT_RE = re.compile(
-    r"\b(?:TABELA|QUADRO|PARAMETROS?|INDICES?|COLUNA|LINHA|TOTAL|SUBTOTAL)\b"
+    r"\b(?:TABELA|QUADRO|PARAMETROS?|INDICES?|COLUNA|LINHA|TOTAL|SUBTOTAL|CONTINUACAO)\b"
 )
 
 
@@ -43,12 +43,10 @@ def _component_count(mask: Any, cv2: Any, min_area: int = 3) -> int:
 
 
 def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
-    """Detecta tabelas e diagramas em páginas rasterizadas.
+    """Detecta tabelas, continuações e diagramas em páginas rasterizadas.
 
-    A função trabalha sobre miniaturas e produz apenas evidência de preservação.
-    Ela não reconstrói células nem interpreta relações normativas. O texto OCR,
-    quando disponível, atua apenas como evidência auxiliar e nunca substitui a
-    estrutura visual.
+    A função produz evidência de preservação, sem reconstruir células. O texto
+    OCR, quando disponível, atua apenas como evidência auxiliar.
     """
 
     cv2, np = _load_cv_stack()
@@ -89,10 +87,8 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
     closed_regions = 0
     structured_area = 0.0
     box_like_regions = 0
-    region_widths: list[int] = []
-    region_heights: list[int] = []
     for contour in contours:
-        x, y, box_width, box_height = cv2.boundingRect(contour)
+        _, _, box_width, box_height = cv2.boundingRect(contour)
         area = box_width * box_height
         if area < page_area * 0.0005 or area > page_area * 0.95:
             continue
@@ -103,25 +99,32 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
             structured_area += area
             if box_width >= width * 0.04 and box_height >= height * 0.025:
                 box_like_regions += 1
-                region_widths.append(box_width)
-                region_heights.append(box_height)
 
     structured_area_ratio = min(structured_area / page_area, 1.0)
     has_diagram_text = bool(_DIAGRAM_TEXT_RE.search(normalized_text))
     has_table_text = bool(_TABLE_TEXT_RE.search(normalized_text))
 
-    # Uma grade regular apresenta muitos cruzamentos relativamente ao número de linhas.
     line_total = max(horizontal_lines + vertical_lines, 1)
     intersection_density = intersections / line_total
     regular_grid = intersection_density >= 1.15 and intersections >= 8
 
-    table_candidate = (
+    full_table_candidate = (
         horizontal_lines >= 4
         and vertical_lines >= 3
         and intersections >= 6
         and structured_area_ratio >= 0.04
         and (regular_grid or has_table_text)
     )
+    partial_table_candidate = (
+        horizontal_lines >= 3
+        and vertical_lines >= 2
+        and intersections >= 4
+        and closed_regions >= 2
+        and structured_area_ratio >= 0.02
+        and not has_diagram_text
+    )
+    table_candidate = full_table_candidate or partial_table_candidate
+
     strong_table = (
         horizontal_lines >= 8
         and vertical_lines >= 6
@@ -130,9 +133,6 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
         and regular_grid
     )
 
-    # Diagramas podem conter muitas linhas, mas têm menos cruzamentos regulares e
-    # caixas maiores e heterogêneas. Evidência textual explícita tem precedência
-    # quando a grade não é forte.
     diagram_candidate = (
         box_like_regions >= 2
         and (horizontal_lines + vertical_lines) >= 4
@@ -172,6 +172,8 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
         if strong_table:
             score += 4
             reasons.append("grade raster forte com linhas e cruzamentos regulares")
+        elif partial_table_candidate and not full_table_candidate:
+            reasons.append("grade raster parcial compatível com continuação de tabela")
         else:
             reasons.append("grade raster candidata com estrutura celular")
 

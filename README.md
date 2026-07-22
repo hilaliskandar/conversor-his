@@ -2,7 +2,9 @@
 
 Ferramenta para diagnosticar, converter e validar diplomas legais municipais em Markdown estruturado, com OCR seletivo, preservação visual, rastreabilidade e controle de qualidade.
 
-Versão atual: **0.7.0**.
+Versão atual: **0.8.0a1**.
+
+A série 0.8 introduz a API principal em português brasileiro. Os nomes públicos da série 0.7 permanecem temporariamente disponíveis em módulos adaptadores, para facilitar a migração de integrações existentes.
 
 ## Princípios
 
@@ -26,12 +28,12 @@ Versão atual: **0.7.0**.
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -e ".[dev,ocr]"
+python -m pip install -e ".[dev,ocr]"
 ```
 
-A série 0.7.x inclui `numpy` e `opencv-python-headless` para análise visual seletiva de páginas rasterizadas.
+A análise visual seletiva utiliza `numpy` e `opencv-python-headless`. O OCR opcional utiliza `pytesseract` e requer uma instalação funcional do Tesseract no sistema operacional.
 
-## Uso
+## Interface de linha de comando
 
 ### Diagnóstico individual
 
@@ -46,10 +48,11 @@ conversor-his diagnosticar `
 ```powershell
 conversor-his converter `
   --entrada "D:\corpus\originais\lei.pdf" `
-  --saida "D:\corpus\processado"
+  --saida "D:\corpus\processado" `
+  --dpi 300
 ```
 
-### Lote completo
+### Conversão de lote ZIP
 
 O valor `0` em `--documentos` processa todos os PDFs elegíveis:
 
@@ -61,7 +64,7 @@ conversor-his converter-lote `
   --dpi 300
 ```
 
-### Retomada
+### Retomada de lote
 
 ```powershell
 conversor-his converter-lote `
@@ -72,7 +75,62 @@ conversor-his converter-lote `
   --retomar
 ```
 
-A retomada exige coincidência entre hash da fonte, versão do conversor, DPI e produtos finais existentes.
+A retomada exige coincidência entre o hash da fonte, a versão do conversor, o DPI e a existência dos produtos finais.
+
+## API Python em português
+
+```python
+from pathlib import Path
+
+from conversor_his.conversor import converter_pdf
+from conversor_his.diagnostico import diagnosticar_pdf
+from conversor_his.lote import converter_lote_zip
+from conversor_his.manifesto import ler_manifesto
+
+entrada = Path("lei.pdf")
+saida = Path("processado")
+
+diagnostico = diagnosticar_pdf(entrada)
+caminho_markdown = converter_pdf(entrada, saida, dpi=300)
+manifesto = ler_manifesto(saida / "lei.manifest.json")
+```
+
+Conversão em lote:
+
+```python
+from pathlib import Path
+
+from conversor_his.lote import converter_lote_zip
+
+resultado = converter_lote_zip(
+    caminho_zip=Path("municipio.zip"),
+    diretorio_saida=Path("processado/municipio"),
+    limite_documentos=0,
+    retomar=True,
+)
+
+print(resultado.quantidade_sucessos)
+print(resultado.caminho_manifesto)
+```
+
+## Arquitetura principal
+
+| Responsabilidade | Módulo principal |
+|---|---|
+| fluxo completo de conversão | `fluxo_conversao.py` |
+| diagnóstico por página | `diagnostico.py` |
+| modelos de dados | `modelos.py` |
+| manifestos | `manifesto.py` |
+| processamento em lote | `lote.py` |
+| interface de linha de comando | `linha_comando.py` |
+| tabelas | `tabelas.py` |
+| mapas | `mapas.py` |
+| avaliação visual de mapas | `visual_mapa.py` |
+| avaliação visual raster | `visual_raster.py` |
+| registros de coordenadas | `coordenadas.py` |
+| normalização textual | `normalizacao_texto.py` |
+
+Os módulos antigos em inglês são adaptadores temporários. Nenhuma lógica nova deve ser adicionada a esses arquivos.
 
 ## Arquitetura de classificação
 
@@ -82,28 +140,17 @@ O texto bruto em modo `layout` é analisado antes da normalização. O detector 
 
 ### Evidência vetorial
 
-Páginas nativas também são avaliadas pelas operações gráficas do PDF:
-
-- retângulos finos usados como bordas;
-- linhas horizontais e verticais;
-- grades parciais;
-- pequenas regiões tabulares;
-- proteção contra molduras simples e alinhamentos artificiais.
+Páginas nativas também são avaliadas pelas operações gráficas do PDF, incluindo retângulos finos, linhas horizontais e verticais, grades parciais e pequenas regiões tabulares. Molduras simples e alinhamentos artificiais recebem proteção contra falso positivo.
 
 ### Evidência raster
 
-A análise raster é seletiva e se aplica principalmente às páginas encaminhadas ao OCR. Uma miniatura a até 150 DPI é examinada para localizar:
-
-- linhas horizontais;
-- linhas verticais;
-- cruzamentos;
-- regiões fechadas;
-- proporção estruturada da página;
-- conjuntos de caixas e conectores.
+A análise raster é seletiva e se aplica principalmente às páginas encaminhadas ao OCR. Uma miniatura de até 150 DPI é examinada para localizar linhas, cruzamentos, regiões fechadas, áreas estruturadas e conjuntos de caixas ou conectores.
 
 A análise não reconstrói células nem interpreta relações normativas. Seu objetivo é identificar e preservar estruturas visuais relevantes.
 
-## Classes visuais
+## Classes internas de conteúdo
+
+Os valores textuais abaixo permanecem estáveis durante a transição, inclusive para leitura de manifestos anteriores:
 
 - `confirmed`: tabela nativa ou vetorial confirmada;
 - `candidate`: candidata textual;
@@ -123,57 +170,54 @@ A análise não reconstrói células nem interpreta relações normativas. Seu o
 
 | Classe | Imagem | Texto | Revisão |
 |---|---|---|---|
-| tabela nativa/vetorial | sim, até 200 DPI | bruto | obrigatória |
+| tabela nativa ou vetorial | sim, até 200 DPI | bruto | obrigatória |
 | tabela raster | sim, até 200 DPI | OCR | obrigatória |
 | diagrama | sim, até 250 DPI | OCR | obrigatória |
 | coordenadas | sim, até 200 DPI | bruto ou OCR | obrigatória |
-| mapa confirmado/candidato | sim, até 300 DPI | nativo ou OCR | obrigatória |
+| mapa confirmado ou candidato | sim, até 300 DPI | nativo ou OCR | obrigatória |
 | capa cartográfica | sim | nativo ou OCR | classificatória |
-| OCR médio/baixo | sim, até 300 DPI | OCR | obrigatória |
+| OCR médio ou baixo | sim, até 300 DPI | OCR | obrigatória |
 | texto rotacionado | sim, até 300 DPI | extração selecionada | obrigatória |
 
-## Evidência raster inicial
+## Manifestos
 
-Uma candidata raster exige, em termos gerais:
+Os manifestos individuais novos usam campos em português, incluindo:
 
-- pelo menos quatro linhas horizontais;
-- pelo menos três linhas verticais;
-- pelo menos seis cruzamentos;
-- região estruturada equivalente a pelo menos 5% da página.
+- `caminho_origem`;
+- `quantidade_paginas`;
+- `caminho_markdown`;
+- `paginas_com_ocr`;
+- `paginas_de_mapa`;
+- `paginas_de_tabela`;
+- `paginas_de_tabela_raster`;
+- `paginas_de_diagrama`;
+- `paginas_de_registro_de_coordenadas`;
+- `paginas_para_revisao`;
+- `segundos_de_processamento`;
+- `gerado_em`;
+- `atualizado_em`.
 
-A evidência é considerada forte quando alcança:
+`ler_manifesto()` aceita manifestos da série 0.7 e normaliza seus campos para os nomes portugueses.
 
-- pelo menos oito linhas horizontais;
-- pelo menos seis linhas verticais;
-- pelo menos vinte cruzamentos;
-- região estruturada equivalente a pelo menos 10% da página.
+O manifesto incremental de lote mantém temporariamente suas chaves históricas em inglês para permitir a retomada de lotes iniciados pela série 0.7. Essa é uma exceção explícita de compatibilidade, não o padrão para novos modelos públicos.
 
-Esses limiares são provisórios e devem ser recalibrados no gold set do corpus.
+## Migração da API 0.7
 
-## Manifesto
+| API 0.7 | API 0.8 |
+|---|---|
+| `convert_pdf` | `converter_pdf` |
+| `diagnose_pdf` | `diagnosticar_pdf` |
+| `convert_zip_batch` | `converter_lote_zip` |
+| `write_manifest` | `escrever_manifesto` |
+| `read_manifest` | `ler_manifesto` |
+| `PageDiagnosis` | `DiagnosticoDePagina` |
+| `DocumentDiagnosis` | `DiagnosticoDeDocumento` |
+| `ConversionManifest` | `ManifestoDeConversao` |
+| `TableAssessment` | `AvaliacaoDeTabela` |
+| `CoordinateAssessment` | `AvaliacaoDeCoordenadas` |
+| `RasterVisualAssessment` | `AvaliacaoVisualRaster` |
 
-Além dos campos anteriores, a 0.7.0 registra:
-
-- `raster_table_pages`;
-- `diagram_pages`;
-- `coordinate_register_pages`;
-- `map_candidate_pages`;
-- `map_cover_pages`;
-- `ocr_review_image_pages`;
-- evidências raster por página;
-- disponibilidade de imagem de revisão.
-
-## Gates de validação da 0.7.0
-
-| Métrica | Gate mínimo |
-|---|---:|
-| Revocação das tabelas raster do gold set | 0,95 |
-| Precisão de tabelas raster | 0,80 |
-| Revocação dos diagramas conhecidos | 0,90 |
-| Precisão de mapas | 0,80 |
-| Imagem disponível para OCR médio/baixo | 1,00 |
-| Integridade de páginas, links e hashes | 1,00 |
-| Aumento desejável do tempo total | no máximo 25% |
+Os adaptadores antigos serão removidos em uma versão principal posterior à transição 0.8.
 
 ## Produtos gerados
 
@@ -182,46 +226,37 @@ Além dos campos anteriores, a 0.7.0 registra:
 - `<documento>_assets/`: imagens visuais, tabulares e de revisão;
 - `<nome-do-zip>.lote.manifest.json`: inventário incremental do lote.
 
-## Histórico de versões
+## Validação local
 
-### 0.7.0 — preservação visual seletiva
+```powershell
+git pull
+python -m pip install -e ".[dev,ocr]"
+python -m pytest
+python -m ruff check src tests
+conversor-his --help
+```
 
-- acrescenta análise raster seletiva às páginas OCR;
-- preserva tabelas rasterizadas como `raster_table_candidate`;
-- identifica possíveis diagramas;
-- preserva imagem de todo OCR médio ou baixo;
-- preserva imagem de páginas com texto rotacionado;
+Os limiares visuais ainda devem ser medidos e recalibrados no conjunto-ouro do corpus antes de uso consolidado sem supervisão humana.
+
+## Histórico recente
+
+### 0.8.0a1 — API principal em português
+
+- introduz módulos, funções, classes, parâmetros e campos públicos em português;
+- move a implementação principal para `fluxo_conversao.py`;
+- converte os módulos antigos em adaptadores de compatibilidade;
+- produz manifestos individuais com campos em português;
+- lê e normaliza manifestos produzidos pela série 0.7;
+- preserva a retomada dos manifestos incrementais de lote;
+- mantém estáveis as classificações internas persistidas durante a transição.
+
+### 0.7.2 — preservação visual contextual
+
+- combina evidência textual, vetorial e raster;
+- preserva tabelas rasterizadas e diagramas candidatos;
 - separa registros de coordenadas das tabelas;
-- distingue mapas, candidatos cartográficos e capas de mapas;
-- registra métricas visuais e novas listas no manifesto;
-- mantém OCR a 300 DPI e ativos tabulares em resolução menor;
-- acrescenta testes sintéticos para grades, diagramas, coordenadas e mapas.
-
-### 0.6.2 — evidência vetorial e continuidade
-
-- detecta grades a partir das operações vetoriais do PDF;
-- recupera quadros viários, tabelas genéricas e pequenas regiões tabulares;
-- acrescenta `visual_candidate`;
-- rebaixa prosa jurídica sem grade;
-- reutiliza a extração nativa;
-- limita imagens tabulares a 200 DPI.
-
-### 0.6.1 — detecção tabular orientada pelo corpus
-
-- usa o `layout` bruto para preservar alinhamentos;
-- reconhece matrizes urbanísticas e suas continuações;
-- acrescenta classes mistas e evidências de parâmetros urbanísticos.
-
-### 0.6.0 — validação operacional
-
-- valida conversão em amostra real;
-- normaliza espaços e caracteres invisíveis;
-- preserva texto bruto de tabelas;
-- registra arquivos ignorados e estados do lote.
-
-## Estado atual
-
-A 0.7.0 é uma versão de validação ampliada. A arquitetura está preparada para preservar estruturas rasterizadas e organizar a revisão, mas seus thresholds devem ser medidos no gold set antes de uso consolidado sem supervisão humana.
+- distingue mapas confirmados, candidatos e capas cartográficas;
+- preserva imagens de revisão para OCR médio ou baixo e texto rotacionado.
 
 ## Licenciamento
 

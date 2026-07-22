@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from conversor_his import __version__
 from conversor_his.coordenadas import avaliar_registro_de_coordenadas
 from conversor_his.diagnostico import diagnosticar_pdf
 from conversor_his.lote import converter_lote_zip
@@ -20,6 +21,9 @@ from conversor_his.normalizacao_texto import normalizar_texto_de_prosa
 from conversor_his.tabelas import avaliar_tabela
 from conversor_his.visual_mapa import avaliar_visual_de_mapa
 from conversor_his.visual_raster import avaliar_visual_raster
+
+
+RAIZ_REPOSITORIO = Path(__file__).resolve().parents[1]
 
 
 def test_api_publica_em_portugues_esta_disponivel() -> None:
@@ -117,3 +121,14 @@ def test_leitor_normaliza_manifesto_da_api_anterior(tmp_path: Path) -> None:
     assert dados["paginas_para_revisao"] == [2]
     assert dados["segundos_de_processamento"] == 1.25
     assert dados["gerado_em"] == "2026-01-01T00:00:00+00:00"
+
+
+def test_readme_acompanha_versao_e_api_principal() -> None:
+    readme = (RAIZ_REPOSITORIO / "README.md").read_text(encoding="utf-8")
+    pyproject = (RAIZ_REPOSITORIO / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert f"Versão atual: **{__version__}**" in readme
+    assert "from conversor_his.conversor import converter_pdf" in readme
+    assert "conversor-his=\"conversor_his.linha_comando:app\"" in pyproject
+    assert "`caminho_origem`" in readme
+    assert "`gerado_em`" in readme

@@ -158,8 +158,13 @@ def assess_raster_visual(
         and 0.008 <= structured_area_ratio <= 0.60
         and (
             has_diagram_text
-            or not regular_grid
-            or intersections < max(12, box_like_regions * 4)
+            or (
+                not partial_grid_detected
+                and (
+                    not regular_grid
+                    or intersections < max(12, box_like_regions * 4)
+                )
+            )
         )
         and not strong_table
     )

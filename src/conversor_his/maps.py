@@ -4,7 +4,7 @@
 from .mapas import (
     ClasseTextualDeMapa as MapTextClass,
     classificar_pagina_de_mapa as _classificar_pagina_de_mapa,
-    extrair_titulo_de_mapa as extract_map_title,
+    extrair_titulo_de_mapa as _extrair_titulo_de_mapa,
     pagina_e_mapa as _pagina_e_mapa,
     salvar_imagem_de_mapa as _salvar_imagem_de_mapa,
 )
@@ -31,6 +31,12 @@ def is_map_page(text: str, image_count: int, max_text_chars: int = 700) -> bool:
         image_count,
         maximo_caracteres_texto=max_text_chars,
     )
+
+
+def extract_map_title(text: str, page_number: int) -> str:
+    """Preserva a assinatura pública da versão 0.7."""
+
+    return _extrair_titulo_de_mapa(text, numero_pagina=page_number)
 
 
 def save_map_image(

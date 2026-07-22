@@ -17,6 +17,7 @@ PageType = Literal[
     "text",
     "map",
     "map_candidate",
+    "map_confirmed",
     "map_cover",
     "table",
     "table_candidate",

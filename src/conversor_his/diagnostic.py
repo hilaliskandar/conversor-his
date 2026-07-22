@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .coordinates import assess_coordinate_register
 from .extractors.pypdf_native import (
     NativeTextExtraction,
     count_page_images,
@@ -12,7 +13,7 @@ from .extractors.pypdf_native import (
 from .graphics import analyze_repeated_graphics
 from .graphics_policy import refine_confirmed_decorative_graphics
 from .hashing import sha256_file
-from .maps import is_map_page
+from .maps import classify_map_page
 from .models import DocumentDiagnosis, PageDiagnosis
 from .tables import assess_table
 from .visual_tables import assess_vector_grid, merge_visual_table_evidence
@@ -60,7 +61,8 @@ def diagnose_pdf(
             graphics.content_image_count if graphics is not None else fallback_image_count
         )
         char_count = len(text.strip())
-        suspected_map = is_map_page(text, content_image_count)
+        map_class = classify_map_page(text, content_image_count)
+        coordinate_assessment = assess_coordinate_register(raw_text)
         table_assessment = assess_table(raw_text)
         vector_evidence = assess_vector_grid(page)
         table_assessment = merge_visual_table_evidence(
@@ -68,6 +70,13 @@ def diagnose_pdf(
             vector_evidence,
             raw_text,
         )
+
+        # Registros de coordenadas são preservados, mas não entram na métrica tabular.
+        if coordinate_assessment.detected:
+            table_assessment.classification = "not_table"
+            table_assessment.suspected = False
+            table_assessment.content_profile = "coordinates"
+
         suspected_table = table_assessment.classification == "confirmed"
         table_candidate = table_assessment.classification in _TABLE_CANDIDATE_CLASSES
         has_native = char_count >= min_native_chars
@@ -78,12 +87,15 @@ def diagnose_pdf(
             and raw_image_count == decorative_image_count
         )
 
-        if suspected_map:
+        if map_class in {"map_confirmed", "map_candidate", "map_cover"}:
             route = "map"
-            page_type = "map"
+            page_type = map_class
         elif decorative_only:
             route = "decorative"
             page_type = "back_cover" if index == page_count else "decorative_only"
+        elif coordinate_assessment.detected and has_native:
+            route = "native"
+            page_type = "coordinate_register"
         elif suspected_table:
             route = "structured"
             page_type = "table"
@@ -95,12 +107,18 @@ def diagnose_pdf(
             page_type = "unknown"
 
         page_warnings: list[str] = []
-        if suspected_map:
-            page_warnings.append(
-                "conteudo visual possivelmente cartografico: preservar imagem e texto"
-            )
+        if map_class == "map_confirmed":
+            page_warnings.append("conteudo cartografico confirmado: preservar imagem e texto")
+        elif map_class == "map_candidate":
+            page_warnings.append("possivel conteudo cartografico: preservar para revisao")
+        elif map_class == "map_cover":
+            page_warnings.append("capa ou indice cartografico: preservar sem contar como mapa")
         elif decorative_only:
             page_warnings.append("pagina exclusivamente decorativa: OCR dispensado")
+        elif coordinate_assessment.detected:
+            page_warnings.append(
+                "registro de coordenadas: preservar imagem e texto em classe propria"
+            )
         elif suspected_table:
             page_warnings.append(
                 "estrutura tabular confirmada: preservar imagem e exigir revisao estrutural"
@@ -116,7 +134,7 @@ def diagnose_pdf(
             page_warnings.append(
                 "grade vetorial detectada: bordas tabulares preservadas como evidencia"
             )
-        if content_image_count and has_native and not suspected_map:
+        if content_image_count and has_native and map_class == "none":
             page_warnings.append("pagina hibrida: texto e imagem relevante")
         if not char_count and not raw_image_count:
             page_warnings.append("pagina sem texto ou imagem detectavel")
@@ -137,7 +155,7 @@ def diagnose_pdf(
                 decorative_image_count=decorative_image_count,
                 content_image_count=content_image_count,
                 suspected_table=suspected_table,
-                suspected_map=suspected_map,
+                suspected_map=map_class in {"map_confirmed", "map_candidate"},
                 page_type=page_type,
                 route=route,
                 warnings=page_warnings,
@@ -145,6 +163,9 @@ def diagnose_pdf(
                     table_assessment
                     if table_assessment.classification != "not_table"
                     else None
+                ),
+                coordinate_assessment=(
+                    coordinate_assessment if coordinate_assessment.detected else None
                 ),
                 native_extraction_mode=extraction.selected_mode,
                 layout_character_count=extraction.layout_character_count,

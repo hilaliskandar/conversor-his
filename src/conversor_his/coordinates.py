@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from .models import CoordinateAssessment
+from .models import CoordinateAssessment, TableAssessment
 
 _XY_PAIR_RE = re.compile(
     r"\bX\s*[:=]\s*-?\d{3,}(?:[.,]\d+)?\s*[,; ]+\s*Y\s*[:=]\s*-?\d{3,}(?:[.,]\d+)?",
@@ -84,3 +84,39 @@ def assess_coordinate_register(text: str) -> CoordinateAssessment:
         keyword_hits=keyword_hits,
         reasons=reasons,
     )
+
+
+def should_classify_coordinate_register(
+    assessment: CoordinateAssessment,
+    table_assessment: TableAssessment | None = None,
+    *,
+    visual_grid_strong: bool = False,
+) -> bool:
+    """Resolve conflito entre coordenadas e tabela com precedência conservadora.
+
+    Uma sequência geodésica continua em classe própria, exceto quando a página
+    apresenta grade tabular forte ou cabeçalhos e colunas suficientemente claros.
+    Isso evita converter tabelas de parâmetros que apenas mencionam UTM ou
+    coordenadas em memoriais descritivos.
+    """
+
+    if not assessment.detected:
+        return False
+    if visual_grid_strong:
+        return False
+    if table_assessment is None:
+        return True
+
+    if table_assessment.visual_grid_strong:
+        return False
+
+    strong_textual_table = (
+        table_assessment.classification == "confirmed"
+        and table_assessment.stable_columns >= 3
+        and (
+            len(table_assessment.header_hits) >= 2
+            or len(table_assessment.urban_parameter_hits) >= 2
+            or table_assessment.row_count >= 4
+        )
+    )
+    return not strong_textual_table

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .coordinates import assess_coordinate_register
+from .coordinates import assess_coordinate_register, should_classify_coordinate_register
 from .extractors.pypdf_native import (
     NativeTextExtraction,
     count_page_images,
@@ -62,7 +62,6 @@ def diagnose_pdf(
         )
         char_count = len(text.strip())
         map_class = classify_map_page(text, content_image_count)
-        coordinate_assessment = assess_coordinate_register(raw_text)
         table_assessment = assess_table(raw_text)
         vector_evidence = assess_vector_grid(page)
         table_assessment = merge_visual_table_evidence(
@@ -70,9 +69,14 @@ def diagnose_pdf(
             vector_evidence,
             raw_text,
         )
+        coordinate_assessment = assess_coordinate_register(raw_text)
+        coordinate_register = should_classify_coordinate_register(
+            coordinate_assessment,
+            table_assessment,
+            visual_grid_strong=vector_evidence.strong,
+        )
 
-        # Registros de coordenadas são preservados, mas não entram na métrica tabular.
-        if coordinate_assessment.detected:
+        if coordinate_register:
             table_assessment.classification = "not_table"
             table_assessment.suspected = False
             table_assessment.content_profile = "coordinates"
@@ -93,7 +97,7 @@ def diagnose_pdf(
         elif decorative_only:
             route = "decorative"
             page_type = "back_cover" if index == page_count else "decorative_only"
-        elif coordinate_assessment.detected and has_native:
+        elif coordinate_register and has_native:
             route = "native"
             page_type = "coordinate_register"
         elif suspected_table:
@@ -115,7 +119,7 @@ def diagnose_pdf(
             page_warnings.append("capa ou indice cartografico: preservar sem contar como mapa")
         elif decorative_only:
             page_warnings.append("pagina exclusivamente decorativa: OCR dispensado")
-        elif coordinate_assessment.detected:
+        elif coordinate_register:
             page_warnings.append(
                 "registro de coordenadas: preservar imagem e texto em classe propria"
             )
@@ -133,6 +137,10 @@ def diagnose_pdf(
         if vector_evidence.detected:
             page_warnings.append(
                 "grade vetorial detectada: bordas tabulares preservadas como evidencia"
+            )
+        if coordinate_assessment.detected and not coordinate_register:
+            page_warnings.append(
+                "evidencia de coordenadas subordinada a estrutura tabular mais forte"
             )
         if content_image_count and has_native and map_class == "none":
             page_warnings.append("pagina hibrida: texto e imagem relevante")

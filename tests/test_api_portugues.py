@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from PIL import Image, ImageDraw
+
 from conversor_his.coordenadas import avaliar_registro_de_coordenadas
 from conversor_his.diagnostico import diagnosticar_pdf
 from conversor_his.lote import converter_lote_zip
 from conversor_his.manifesto import escrever_manifesto
 from conversor_his.mapas import classificar_pagina_de_mapa
-from conversor_his.modelos import AvaliacaoDeCoordenadas, ManifestoDeConversao
+from conversor_his.modelos import (
+    AvaliacaoDeCoordenadas,
+    AvaliacaoDeTabela,
+    AvaliacaoVisualRaster,
+    ManifestoDeConversao,
+)
 from conversor_his.normalizacao_texto import normalizar_texto_de_prosa
 from conversor_his.tabelas import avaliar_tabela
 from conversor_his.visual_mapa import avaliar_visual_de_mapa
@@ -23,6 +30,8 @@ def test_api_publica_em_portugues_esta_disponivel() -> None:
     assert callable(escrever_manifesto)
     assert callable(normalizar_texto_de_prosa)
     assert AvaliacaoDeCoordenadas.__name__ == "CoordinateAssessment"
+    assert AvaliacaoDeTabela.__name__ == "AvaliacaoDeTabela"
+    assert AvaliacaoVisualRaster.__name__ == "AvaliacaoVisualRaster"
     assert ManifestoDeConversao.__name__ == "ConversionManifest"
 
 
@@ -38,3 +47,31 @@ def test_funcoes_portuguesas_preservam_comportamento() -> None:
     assert coordenadas.detected is True
 
     assert classificar_pagina_de_mapa("MAPA DE ZONEAMENTO", 1) == "map_candidate"
+
+
+def test_resultados_tabular_e_raster_usam_campos_em_portugues() -> None:
+    avaliacao_tabela = avaliar_tabela(
+        """
+        QUADRO DE PARAMETROS URBANISTICOS
+        ZONA        LOTE        TESTADA        RECUO
+        Z1          200         10             5
+        Z2          250         12             5
+        Z3          300         15             6
+        Z4          400         20             8
+        """
+    )
+    assert isinstance(avaliacao_tabela, AvaliacaoDeTabela)
+    assert avaliacao_tabela.classificacao != "not_table"
+    assert avaliacao_tabela.classification == avaliacao_tabela.classificacao
+
+    imagem = Image.new("RGB", (900, 1200), "white")
+    desenho = ImageDraw.Draw(imagem)
+    for y in (300, 450, 600, 750, 900):
+        desenho.line((150, y, 750, y), fill="black", width=4)
+    for x in (150, 350, 550, 750):
+        desenho.line((x, 300, x, 900), fill="black", width=4)
+
+    avaliacao_raster = avaliar_visual_raster(imagem, texto="TABELA")
+    assert isinstance(avaliacao_raster, AvaliacaoVisualRaster)
+    assert avaliacao_raster.classificacao == "raster_table_candidate"
+    assert avaliacao_raster.classification == avaliacao_raster.classificacao

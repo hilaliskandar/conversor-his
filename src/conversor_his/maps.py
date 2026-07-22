@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Literal
 
 from .ocr.render import render_pdf_page
+
+MapTextClass = Literal["none", "map_candidate", "map_confirmed", "map_cover"]
 
 _MAP_WORD_RE = re.compile(r"\b(?:MAPA|PLANTA|CARTA|CROQUI)\b", re.IGNORECASE)
 _MAP_TITLE_RE = re.compile(
@@ -17,20 +20,58 @@ _SPATIAL_RE = re.compile(
     r"USO\s+E\s+OCUPA[CÇ][AÃ]O|[ÁA]REAS?\s+DE\s+RISCO)\b",
     re.IGNORECASE,
 )
+_CARTOGRAPHIC_EVIDENCE_RE = re.compile(
+    r"\b(?:LEGENDA|ESCALA|NORTE|SIRGAS|UTM|COORDENADAS?|PROJE[CÇ][AÃ]O|DATUM)\b",
+    re.IGNORECASE,
+)
+_COVER_RE = re.compile(
+    r"\b(?:ANEXO\s+(?:CARTOGR[ÁA]FICO|DE\s+MAPAS?)|CADERNO\s+DE\s+MAPAS?|"
+    r"[ÍI]NDICE\s+DE\s+MAPAS?|RELA[CÇ][AÃ]O\s+DE\s+MAPAS?)\b",
+    re.IGNORECASE,
+)
 
 
-def is_map_page(text: str, image_count: int, max_text_chars: int = 700) -> bool:
-    """Indica se a página deve ser tratada como conteúdo cartográfico.
-
-    A heurística exige imagem e combina vocabulário cartográfico com uma camada
-    textual curta. Isso evita classificar como mapa páginas normativas que apenas
-    fazem referência a anexos cartográficos.
-    """
+def classify_map_page(
+    text: str,
+    image_count: int,
+    *,
+    visual_complexity: bool = False,
+    max_text_chars: int = 700,
+) -> MapTextClass:
+    """Classifica evidência cartográfica sem confundir capa e mapa efetivo."""
 
     normalized = " ".join(text.split())
     if image_count < 1 or len(normalized) > max_text_chars:
-        return False
-    return bool(_MAP_WORD_RE.search(normalized) or _SPATIAL_RE.search(normalized))
+        return "none"
+
+    has_map_word = bool(_MAP_WORD_RE.search(normalized) or _SPATIAL_RE.search(normalized))
+    if not has_map_word:
+        return "none"
+
+    if _COVER_RE.search(normalized) and not visual_complexity:
+        return "map_cover"
+
+    evidence_count = sum(
+        (
+            bool(_MAP_WORD_RE.search(normalized)),
+            bool(_SPATIAL_RE.search(normalized)),
+            bool(_CARTOGRAPHIC_EVIDENCE_RE.search(normalized)),
+            visual_complexity,
+        )
+    )
+    if evidence_count >= 2 and visual_complexity:
+        return "map_confirmed"
+    return "map_candidate"
+
+
+def is_map_page(text: str, image_count: int, max_text_chars: int = 700) -> bool:
+    """Compatibilidade: indica mapa confirmado ou candidato, não capa."""
+
+    return classify_map_page(
+        text,
+        image_count,
+        max_text_chars=max_text_chars,
+    ) in {"map_candidate", "map_confirmed"}
 
 
 def extract_map_title(text: str, page_number: int) -> str:
@@ -52,11 +93,12 @@ def save_map_image(
     page_number: int,
     assets_dir: Path,
     dpi: int = 200,
+    suffix: str = "mapa",
 ) -> Path:
     """Renderiza e salva a página cartográfica integralmente como PNG."""
 
     assets_dir.mkdir(parents=True, exist_ok=True)
-    image_path = assets_dir / f"pagina_{page_number:04d}_mapa.png"
+    image_path = assets_dir / f"pagina_{page_number:04d}_{suffix}.png"
     image = render_pdf_page(pdf_path, page_number, dpi=dpi)
     image.save(image_path, format="PNG", optimize=True)
     return image_path

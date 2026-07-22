@@ -44,12 +44,14 @@ def classify_map_page(
     if image_count < 1 or len(normalized) > max_text_chars:
         return "none"
 
-    has_map_word = bool(_MAP_WORD_RE.search(normalized) or _SPATIAL_RE.search(normalized))
-    if not has_map_word:
-        return "none"
-
     if _COVER_RE.search(normalized) and not visual_complexity:
         return "map_cover"
+
+    has_map_word = bool(
+        _MAP_WORD_RE.search(normalized) or _SPATIAL_RE.search(normalized)
+    )
+    if not has_map_word:
+        return "none"
 
     evidence_count = sum(
         (

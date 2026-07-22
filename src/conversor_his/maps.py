@@ -9,7 +9,10 @@ from .ocr.render import render_pdf_page
 
 MapTextClass = Literal["none", "map_candidate", "map_confirmed", "map_cover"]
 
-_MAP_WORD_RE = re.compile(r"\b(?:MAPA|MAPAS|PLANTA|PLANTAS|CARTA|CARTAS|CROQUI)\b", re.IGNORECASE)
+_MAP_WORD_RE = re.compile(
+    r"\b(?:MAPA|MAPAS|PLANTA|PLANTAS|CARTA|CARTAS|CROQUI)\b",
+    re.IGNORECASE,
+)
 _MAP_TITLE_RE = re.compile(
     r"\b(?:MAPA|PLANTA|CARTA|CROQUI)\b(?:\s+(?:N[º°.]?\s*)?[A-Z0-9IVXLCDM.-]+)?"
     r"(?:\s*[-–—:]\s*[^\n]{1,150})?",
@@ -32,7 +35,7 @@ _COVER_RE = re.compile(
     re.IGNORECASE,
 )
 _COVER_LAYOUT_RE = re.compile(
-    r"^(?:ANEXO|AP[EÊ]NDICE|CADERNO|MAPA|PLANTA)\b.{0,180}$",
+    r"^(?:ANEXO|AP[EÊ]NDICE|CADERNO)\b.{0,180}$",
     re.IGNORECASE,
 )
 
@@ -75,8 +78,6 @@ def classify_map_page(
         )
     )
 
-    # Legenda, escala, datum ou coordenadas constituem evidência cartográfica
-    # forte mesmo quando a complexidade visual ainda não foi calculada.
     if has_cartographic_evidence and evidence_count >= 2:
         return "map_confirmed"
     if evidence_count >= 2 and visual_complexity:

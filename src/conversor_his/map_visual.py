@@ -19,7 +19,9 @@ def assess_map_visual(image: Any) -> MapVisualAssessment:
     """Distingue página cartográfica ocupada de capa predominantemente vazia.
 
     A função não interpreta o mapa. Ela mede ocupação, bordas e componentes para
-    apoiar a separação entre mapa efetivo e página de abertura de anexo.
+    apoiar a separação entre mapa efetivo e página de abertura de anexo. Redes
+    densas podem formar um único componente conectado; por isso, alta densidade de
+    bordas também constitui evidência autônoma de complexidade cartográfica.
     """
 
     try:
@@ -52,22 +54,29 @@ def assess_map_visual(image: Any) -> MapVisualAssessment:
         for index in range(1, count)
     )
 
-    visual_complexity = (
+    dense_connected_network = ink_ratio >= 0.045 and edge_ratio >= 0.025
+    diverse_graphics = (
         ink_ratio >= 0.055
         and edge_ratio >= 0.012
         and component_count >= 18
-    ) or (
-        ink_ratio >= 0.09
-        and component_count >= 12
     )
-    cover_like = (
+    occupied_components = ink_ratio >= 0.09 and component_count >= 12
+    visual_complexity = (
+        dense_connected_network or diverse_graphics or occupied_components
+    )
+
+    # Baixa contagem de componentes, isoladamente, não caracteriza capa: mapas
+    # com vias, limites e hachuras conectados frequentemente formam um único bloco.
+    cover_like = not visual_complexity and (
         ink_ratio <= 0.035
-        or component_count <= 8
+        or (component_count <= 8 and edge_ratio <= 0.012)
         or (ink_ratio <= 0.05 and edge_ratio <= 0.010)
     )
 
     reasons: list[str] = []
-    if visual_complexity:
+    if dense_connected_network:
+        reasons.append("rede gráfica densa e conectada compatível com mapa")
+    elif visual_complexity:
         reasons.append("ocupação gráfica e diversidade de componentes compatíveis com mapa")
     if cover_like:
         reasons.append("baixa ocupação gráfica compatível com capa ou folha de abertura")

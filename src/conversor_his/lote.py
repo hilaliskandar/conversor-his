@@ -1,9 +1,27 @@
 # SPDX-License-Identifier: MIT
-"""Processamento de lotes com API pública em português."""
+from __future__ import annotations
 
-from .batch import (
-    BatchConversionResult as ResultadoDeConversaoEmLote,
-    convert_zip_batch as converter_lote_zip,
-)
+import json
+import re
+import shutil
+import stat
+import tempfile
+import time
+import zipfile
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 
-__all__ = ["ResultadoDeConversaoEmLote", "converter_lote_zip"]
+from . import __version__
+from .conversor import converter_pdf
+from .hashing import sha256_file
+from .manifesto import escrever_manifesto
+
+_PARTE_UNIDADE_RE = re.compile(r"^[A-Za-z]:$")
+
+
+@dataclass(slots=True)
+class ResultadoDeConversaoEmLote:
+    caminho_manifesto: Path
+    quantidade

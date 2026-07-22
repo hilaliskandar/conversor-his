@@ -9,7 +9,7 @@ from .ocr.render import render_pdf_page
 
 MapTextClass = Literal["none", "map_candidate", "map_confirmed", "map_cover"]
 
-_MAP_WORD_RE = re.compile(r"\b(?:MAPA|PLANTA|CARTA|CROQUI)\b", re.IGNORECASE)
+_MAP_WORD_RE = re.compile(r"\b(?:MAPA|MAPAS|PLANTA|PLANTAS|CARTA|CARTAS|CROQUI)\b", re.IGNORECASE)
 _MAP_TITLE_RE = re.compile(
     r"\b(?:MAPA|PLANTA|CARTA|CROQUI)\b(?:\s+(?:N[º°.]?\s*)?[A-Z0-9IVXLCDM.-]+)?"
     r"(?:\s*[-–—:]\s*[^\n]{1,150})?",
@@ -21,12 +21,18 @@ _SPATIAL_RE = re.compile(
     re.IGNORECASE,
 )
 _CARTOGRAPHIC_EVIDENCE_RE = re.compile(
-    r"\b(?:LEGENDA|ESCALA|NORTE|SIRGAS|UTM|COORDENADAS?|PROJE[CÇ][AÃ]O|DATUM)\b",
+    r"\b(?:LEGENDA|ESCALA|NORTE|SIRGAS|UTM|COORDENADAS?|PROJE[CÇ][AÃ]O|DATUM|"
+    r"MERIDIANO|FUSO|FONTE\s+CARTOGR[ÁA]FICA)\b",
     re.IGNORECASE,
 )
 _COVER_RE = re.compile(
     r"\b(?:ANEXO\s+(?:CARTOGR[ÁA]FICO|DE\s+MAPAS?)|CADERNO\s+DE\s+MAPAS?|"
-    r"[ÍI]NDICE\s+DE\s+MAPAS?|RELA[CÇ][AÃ]O\s+DE\s+MAPAS?)\b",
+    r"[ÍI]NDICE\s+(?:DE\s+)?MAPAS?|RELA[CÇ][AÃ]O\s+DE\s+MAPAS?|"
+    r"LISTA\s+DE\s+MAPAS?|MAPAS?\s+ANEXOS?|ANEXOS?\s+[-–—:]?\s*MAPAS?)\b",
+    re.IGNORECASE,
+)
+_COVER_LAYOUT_RE = re.compile(
+    r"^(?:ANEXO|AP[EÊ]NDICE|CADERNO|MAPA|PLANTA)\b.{0,180}$",
     re.IGNORECASE,
 )
 
@@ -44,23 +50,35 @@ def classify_map_page(
     if image_count < 1 or len(normalized) > max_text_chars:
         return "none"
 
-    if _COVER_RE.search(normalized) and not visual_complexity:
-        return "map_cover"
-
     has_map_word = bool(
         _MAP_WORD_RE.search(normalized) or _SPATIAL_RE.search(normalized)
     )
     if not has_map_word:
         return "none"
 
+    has_cartographic_evidence = bool(_CARTOGRAPHIC_EVIDENCE_RE.search(normalized))
+    cover_signal = bool(_COVER_RE.search(normalized))
+    short_title_page = (
+        len(normalized) <= 180
+        and bool(_COVER_LAYOUT_RE.search(normalized))
+        and not has_cartographic_evidence
+    )
+    if (cover_signal or short_title_page) and not visual_complexity:
+        return "map_cover"
+
     evidence_count = sum(
         (
             bool(_MAP_WORD_RE.search(normalized)),
             bool(_SPATIAL_RE.search(normalized)),
-            bool(_CARTOGRAPHIC_EVIDENCE_RE.search(normalized)),
+            has_cartographic_evidence,
             visual_complexity,
         )
     )
+
+    # Legenda, escala, datum ou coordenadas constituem evidência cartográfica
+    # forte mesmo quando a complexidade visual ainda não foi calculada.
+    if has_cartographic_evidence and evidence_count >= 2:
+        return "map_confirmed"
     if evidence_count >= 2 and visual_complexity:
         return "map_confirmed"
     return "map_candidate"

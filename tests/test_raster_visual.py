@@ -21,7 +21,7 @@ def test_detects_regular_raster_table() -> None:
     assert result.intersections >= 6
 
 
-def test_detects_box_diagram_without_regular_grid() -> None:
+def test_detects_box_diagram_with_ocr_vocabulary() -> None:
     image = Image.new("RGB", (900, 1200), "white")
     draw = ImageDraw.Draw(image)
 
@@ -38,10 +38,40 @@ def test_detects_box_diagram_without_regular_grid() -> None:
     draw.line((340, 535, 210, 535), fill="black", width=4)
     draw.line((210, 535, 210, 820), fill="black", width=4)
 
+    result = assess_raster_visual(image, "FLUXOGRAMA DO PROCESSO DE LICENCIAMENTO")
+
+    assert result.classification == "diagram_candidate"
+    assert result.detected is True
+    assert result.diagram_text_evidence is True
+
+
+def test_partial_grid_is_latent_without_adjacent_context() -> None:
+    image = Image.new("RGB", (900, 1200), "white")
+    draw = ImageDraw.Draw(image)
+    for y in (360, 500, 640, 780):
+        draw.line((180, y, 720, y), fill="black", width=4)
+    for x in (180, 720):
+        draw.line((x, 360, x, 780), fill="black", width=4)
+
     result = assess_raster_visual(image)
 
-    assert result.classification in {"diagram_candidate", "raster_table_candidate"}
-    assert result.detected is True
+    assert result.partial_grid_detected is True
+    assert result.classification == "none"
+    assert result.detected is False
+
+
+def test_partial_grid_is_promoted_only_with_context() -> None:
+    image = Image.new("RGB", (900, 1200), "white")
+    draw = ImageDraw.Draw(image)
+    for y in (360, 500, 640, 780):
+        draw.line((180, y, 720, y), fill="black", width=4)
+    for x in (180, 720):
+        draw.line((x, 360, x, 780), fill="black", width=4)
+
+    result = assess_raster_visual(image, allow_partial_context=True)
+
+    assert result.classification == "raster_table_candidate"
+    assert result.contextual_continuation is True
 
 
 def test_ignores_plain_scanned_text_page() -> None:

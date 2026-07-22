@@ -27,7 +27,7 @@ def _load_cv_stack() -> tuple[Any, Any]:
     try:
         import cv2
         import numpy as np
-    except ImportError as exc:  # pragma: no cover - dependência declarada do núcleo
+    except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
             "A análise visual raster requer opencv-python-headless e numpy. "
             "Reinstale o projeto com: pip install -e '.[dev,ocr]'"
@@ -42,11 +42,19 @@ def _component_count(mask: Any, cv2: Any, min_area: int = 3) -> int:
     return sum(int(stats[index, cv2.CC_STAT_AREA]) >= min_area for index in range(1, count))
 
 
-def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
-    """Detecta tabelas, continuações e diagramas em páginas rasterizadas.
+def assess_raster_visual(
+    image: Any,
+    text: str = "",
+    *,
+    allow_partial_context: bool = False,
+    mask_page_edges: bool = True,
+) -> RasterVisualAssessment:
+    """Detecta tabelas e diagramas em páginas rasterizadas.
 
-    A função produz evidência de preservação, sem reconstruir células. O texto
-    OCR, quando disponível, atua apenas como evidência auxiliar.
+    Grades parciais são apenas evidência latente. Elas somente viram tabela quando
+    ``allow_partial_context`` é ativado pelo pipeline após verificar uma página
+    tabular adjacente. O mascaramento periférico reduz molduras, cabeçalhos e
+    rodapés recorrentes sem alterar a imagem preservada no produto.
     """
 
     cv2, np = _load_cv_stack()
@@ -64,6 +72,16 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
     )
 
     height, width = binary.shape
+    recurrent_mask_applied = False
+    if mask_page_edges and height >= 200 and width >= 200:
+        top_bottom = max(8, round(height * 0.055))
+        left_right = max(8, round(width * 0.035))
+        binary[:top_bottom, :] = 0
+        binary[height - top_bottom :, :] = 0
+        binary[:, :left_right] = 0
+        binary[:, width - left_right :] = 0
+        recurrent_mask_applied = True
+
     horizontal_kernel = cv2.getStructuringElement(
         cv2.MORPH_RECT,
         (max(20, width // 30), 1),
@@ -90,7 +108,7 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
     for contour in contours:
         _, _, box_width, box_height = cv2.boundingRect(contour)
         area = box_width * box_height
-        if area < page_area * 0.0005 or area > page_area * 0.95:
+        if area < page_area * 0.0005 or area > page_area * 0.90:
             continue
         perimeter = cv2.arcLength(contour, True)
         polygon = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
@@ -115,7 +133,7 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
         and structured_area_ratio >= 0.04
         and (regular_grid or has_table_text)
     )
-    partial_table_candidate = (
+    partial_grid_detected = (
         horizontal_lines >= 3
         and vertical_lines >= 2
         and intersections >= 4
@@ -123,7 +141,8 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
         and structured_area_ratio >= 0.02
         and not has_diagram_text
     )
-    table_candidate = full_table_candidate or partial_table_candidate
+    contextual_partial_table = partial_grid_detected and allow_partial_context
+    table_candidate = full_table_candidate or contextual_partial_table
 
     strong_table = (
         horizontal_lines >= 8
@@ -172,10 +191,12 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
         if strong_table:
             score += 4
             reasons.append("grade raster forte com linhas e cruzamentos regulares")
-        elif partial_table_candidate and not full_table_candidate:
-            reasons.append("grade raster parcial compatível com continuação de tabela")
+        elif contextual_partial_table and not full_table_candidate:
+            reasons.append("grade raster parcial promovida por continuidade contextual")
         else:
             reasons.append("grade raster candidata com estrutura celular")
+    elif partial_grid_detected:
+        reasons.append("grade raster parcial mantida como evidência latente sem contexto adjacente")
 
     return RasterVisualAssessment(
         classification=classification,
@@ -188,5 +209,10 @@ def assess_raster_visual(image: Any, text: str = "") -> RasterVisualAssessment:
         closed_regions=closed_regions,
         structured_area_ratio=round(structured_area_ratio, 6),
         arrow_like_components=0,
+        partial_grid_detected=partial_grid_detected,
+        contextual_continuation=contextual_partial_table,
+        recurrent_mask_applied=recurrent_mask_applied,
+        table_text_evidence=has_table_text,
+        diagram_text_evidence=has_diagram_text,
         reasons=reasons,
     )

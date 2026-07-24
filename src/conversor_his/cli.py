@@ -10,6 +10,7 @@ from .converter import convert_pdf
 from .diagnostic import diagnose_pdf
 from .manifest import write_manifest
 from .packaging import create_analysis_zip
+from .reconstrucao_estrutural import carregar_tokens_jsonl, gravar_estrutura_ocr
 from .validation.canary import run_canary_suite
 
 app = typer.Typer(no_args_is_help=True)
@@ -97,6 +98,17 @@ def validar_canario(
         console.print("[red]Gate canário reprovado.[/red]")
         raise typer.Exit(code=1)
     console.print("[green]Gate canário aprovado.[/green]")
+
+
+@app.command("reconstruir-estrutura")
+def reconstruir_estrutura(
+    entrada: Path = typer.Option(..., exists=True, readable=True),
+    saida: Path = typer.Option(...),
+) -> None:
+    """Reconstrói linhas e blocos a partir de tokens OCR posicionais."""
+    tokens = carregar_tokens_jsonl(entrada)
+    destino = gravar_estrutura_ocr(tokens, saida)
+    console.print(f"[green]Estrutura OCR salva em:[/green] {destino}")
 
 
 @app.command("empacotar-analise")

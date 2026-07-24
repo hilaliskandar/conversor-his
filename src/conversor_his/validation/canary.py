@@ -51,7 +51,7 @@ def run_canary_suite(input_path: Path, output_dir: Path) -> tuple[Path, Path, bo
     payload = json.loads(input_path.read_text(encoding="utf-8"))
     cases = payload.get("cases", payload if isinstance(payload, list) else [])
     if not isinstance(cases, list):
-        raise ValueError("arquivo canario deve conter uma lista ou a chave 'cases'")
+        raise TypeError("arquivo canario deve conter uma lista ou a chave 'cases'")
     results = [evaluate_case(case) for case in cases]
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "canary_results.json"

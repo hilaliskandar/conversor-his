@@ -7,10 +7,11 @@ import json
 import shutil
 from pathlib import Path
 
-from .ocr.tesseract_engine import TesseractEngine
+from .ocr.tesseract_engine import OcrToken, TesseractEngine
 from .output_layout import build_output_layout
 from .pipeline_v072 import _markdown_image
 from .pipeline_v072 import convert_pdf as _pipeline_convert_pdf
+from .reconstrucao_estrutural import gravar_estrutura_ocr
 
 
 def _write_ocr_tokens(
@@ -19,8 +20,9 @@ def _write_ocr_tokens(
     target: Path,
     *,
     dpi: int,
-) -> None:
+) -> list[OcrToken]:
     engine = TesseractEngine()
+    tokens_acumulados: list[OcrToken] = []
     temporary = target.with_suffix(".jsonl.tmp")
     with temporary.open("w", encoding="utf-8") as stream:
         for page_number in sorted(set(pages)):
@@ -29,9 +31,11 @@ def _write_ocr_tokens(
                 page_number,
                 dpi=dpi,
             )
+            tokens_acumulados.extend(tokens)
             for token in tokens:
                 stream.write(json.dumps(token.to_dict(), ensure_ascii=False) + "\n")
     temporary.replace(target)
+    return tokens_acumulados
 
 
 def convert_pdf(
@@ -65,6 +69,7 @@ def convert_pdf(
     markdown_path = layout.analysis_dir / f"{path.stem}.md"
     manifest_path = layout.analysis_dir / f"{path.stem}.manifest.json"
     token_path = layout.analysis_dir / f"{path.stem}.ocr_tokens.jsonl"
+    structure_path = layout.analysis_dir / f"{path.stem}.estrutura_ocr.jsonl"
 
     if layout.assets_dir.exists():
         shutil.rmtree(layout.assets_dir)
@@ -82,11 +87,19 @@ def convert_pdf(
 
     manifest = json.loads(staged_manifest.read_text(encoding="utf-8"))
     used_ocr_pages = [int(value) for value in manifest.get("used_ocr_pages", [])]
-    _write_ocr_tokens(path, used_ocr_pages, token_path, dpi=dpi)
+    tokens = _write_ocr_tokens(path, used_ocr_pages, token_path, dpi=dpi)
+    gravar_estrutura_ocr(tokens, structure_path)
 
     manifest["markdown_path"] = str(markdown_path)
     manifest["manifest_path"] = str(manifest_path)
     manifest["ocr_tokens_path"] = str(token_path)
+    manifest["ocr_structure_path"] = str(structure_path)
+    manifest["ocr_structure"] = {
+        "schema_version": "1.0",
+        "source": "ocr_tokens",
+        "conservative": True,
+        "replaces_markdown": False,
+    }
     manifest["output_layout"] = {
         "analysis_directory": str(layout.analysis_dir),
         "assets_directory": str(layout.assets_dir),

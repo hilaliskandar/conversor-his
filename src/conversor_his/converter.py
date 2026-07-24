@@ -9,7 +9,8 @@ from pathlib import Path
 
 from .ocr.tesseract_engine import TesseractEngine
 from .output_layout import build_output_layout
-from .pipeline_v072 import _markdown_image, convert_pdf as _pipeline_convert_pdf
+from .pipeline_v072 import _markdown_image
+from .pipeline_v072 import convert_pdf as _pipeline_convert_pdf
 
 
 def _write_ocr_tokens(
@@ -105,4 +106,4 @@ def convert_pdf(
     return markdown_path
 
 
-__all__ = ["convert_pdf", "_markdown_image"]
+__all__ = ["_markdown_image", "convert_pdf"]

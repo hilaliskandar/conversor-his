@@ -9,6 +9,8 @@ from .batch import convert_zip_batch
 from .converter import convert_pdf
 from .diagnostic import diagnose_pdf
 from .manifest import write_manifest
+from .packaging import create_analysis_zip
+from .validation.canary import run_canary_suite
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -80,6 +82,31 @@ def converter_lote(
     console.print(f"[green]Manifesto do lote:[/green] {result.manifest_path}")
     if result.failure_count:
         raise typer.Exit(code=1)
+
+
+@app.command("validar-canario")
+def validar_canario(
+    entrada: Path = typer.Option(..., exists=True, readable=True),
+    saida: Path = typer.Option(...),
+) -> None:
+    """Valida headings e termos críticos de uma bateria-canário JSON."""
+    json_path, csv_path, passed = run_canary_suite(entrada, saida / "analise")
+    console.print(f"[green]Relatório JSON:[/green] {json_path}")
+    console.print(f"[green]Relatório CSV:[/green] {csv_path}")
+    if not passed:
+        console.print("[red]Gate canário reprovado.[/red]")
+        raise typer.Exit(code=1)
+    console.print("[green]Gate canário aprovado.[/green]")
+
+
+@app.command("empacotar-analise")
+def empacotar_analise(
+    entrada: Path = typer.Option(..., exists=True, file_okay=False),
+    saida: Path = typer.Option(...),
+) -> None:
+    """Cria ZIP leve com Markdown, CSV, JSON e JSONL, sem imagens."""
+    destino = create_analysis_zip(entrada, saida)
+    console.print(f"[green]Pacote leve salvo em:[/green] {destino}")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,30 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from .base import OcrEngine
 from .render import render_pdf_page
+
+
+@dataclass(frozen=True, slots=True)
+class OcrToken:
+    text: str
+    confidence: float | None
+    page_number: int
+    block_number: int
+    paragraph_number: int
+    line_number: int
+    word_number: int
+    left: int
+    top: int
+    width: int
+    height: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class TesseractEngine(OcrEngine):
@@ -26,7 +46,7 @@ class TesseractEngine(OcrEngine):
         return pytesseract
 
     def recognize_page(self, pdf_path: Path, page_number: int, dpi: int = 300) -> str:
-        text, _ = self.recognize_page_with_confidence(pdf_path, page_number, dpi=dpi)
+        text, _, _ = self.recognize_page_with_tokens(pdf_path, page_number, dpi=dpi)
         return text
 
     def recognize_page_with_confidence(
@@ -35,6 +55,19 @@ class TesseractEngine(OcrEngine):
         page_number: int,
         dpi: int = 300,
     ) -> tuple[str, list[float]]:
+        text, confidences, _ = self.recognize_page_with_tokens(
+            pdf_path,
+            page_number,
+            dpi=dpi,
+        )
+        return text, confidences
+
+    def recognize_page_with_tokens(
+        self,
+        pdf_path: Path,
+        page_number: int,
+        dpi: int = 300,
+    ) -> tuple[str, list[float], list[OcrToken]]:
         pytesseract = self._load_pytesseract()
         image = render_pdf_page(pdf_path, page_number, dpi=dpi)
         config = f"--psm {self.psm} --oem {self.oem}"
@@ -44,17 +77,37 @@ class TesseractEngine(OcrEngine):
             config=config,
             output_type=pytesseract.Output.DICT,
         )
-        tokens: list[str] = []
+        tokens: list[OcrToken] = []
         confidences: list[float] = []
-        for token, confidence in zip(data.get("text", []), data.get("conf", [])):
-            cleaned = str(token).strip()
+        size = len(data.get("text", []))
+        for index in range(size):
+            cleaned = str(data.get("text", [""])[index]).strip()
             if not cleaned:
                 continue
-            tokens.append(cleaned)
+            raw_confidence = data.get("conf", [None] * size)[index]
             try:
-                numeric_confidence = float(confidence)
+                parsed = float(raw_confidence)
+                confidence = parsed if parsed >= 0 else None
             except (TypeError, ValueError):
-                continue
-            if numeric_confidence >= 0:
-                confidences.append(numeric_confidence)
-        return " ".join(tokens).strip(), confidences
+                confidence = None
+            if confidence is not None:
+                confidences.append(confidence)
+            tokens.append(
+                OcrToken(
+                    text=cleaned,
+                    confidence=confidence,
+                    page_number=page_number,
+                    block_number=int(data.get("block_num", [0] * size)[index] or 0),
+                    paragraph_number=int(data.get("par_num", [0] * size)[index] or 0),
+                    line_number=int(data.get("line_num", [0] * size)[index] or 0),
+                    word_number=int(data.get("word_num", [0] * size)[index] or 0),
+                    left=int(data.get("left", [0] * size)[index] or 0),
+                    top=int(data.get("top", [0] * size)[index] or 0),
+                    width=int(data.get("width", [0] * size)[index] or 0),
+                    height=int(data.get("height", [0] * size)[index] or 0),
+                )
+            )
+        return " ".join(token.text for token in tokens).strip(), confidences, tokens
+
+
+__all__ = ["OcrToken", "TesseractEngine"]

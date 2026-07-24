@@ -5,10 +5,11 @@ import json
 import re
 import unicodedata
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from statistics import fmean
-from typing import Iterable, Literal
+from typing import Literal
 
 from .ocr.tesseract_engine import OcrToken
 
@@ -119,9 +120,11 @@ def juntar_tokens(tokens: Iterable[OcrToken]) -> str:
         anterior = partes[-1]
         if atual in {"-", "–", "—"}:
             partes.append(atual)
-        elif atual[0] in _SEM_ESPACO_ANTES or anterior[-1] in _SEM_ESPACO_DEPOIS:
-            partes[-1] = anterior + atual
-        elif anterior.endswith("/"):
+        elif (
+            atual[0] in _SEM_ESPACO_ANTES
+            or anterior[-1] in _SEM_ESPACO_DEPOIS
+            or anterior.endswith("/")
+        ):
             partes[-1] = anterior + atual
         else:
             partes.append(atual)
